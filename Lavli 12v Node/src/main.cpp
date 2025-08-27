@@ -2,15 +2,15 @@
 #include <driver/twai.h>
 
 // CAN pins - using valid ESP32-S3 GPIO pins
-#define CAN_TX_PIN GPIO_NUM_21
-#define CAN_RX_PIN GPIO_NUM_20
+#define CAN_TX_PIN GPIO_NUM_4
+#define CAN_RX_PIN GPIO_NUM_5
 
 // Device CAN address - Change this for each device on your network
 #define MY_CAN_ADDRESS 0x123
 
 // Port pin definitions - Map port numbers to GPIO pins
 #define PORT_1_PIN GPIO_NUM_2
-#define PORT_2_PIN GPIO_NUM_4
+#define PORT_2_PIN GPIO_NUM_21
 #define PORT_3_PIN GPIO_NUM_5
 #define PORT_4_PIN GPIO_NUM_6
 #define PORT_5_PIN GPIO_NUM_7
@@ -64,20 +64,35 @@ twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 void setup() {
   Serial.begin(115200);
   Serial.printf("CAN Receiver Device - Address: 0x%03X\n", MY_CAN_ADDRESS);
+
+  delay(5000);
+
+  for(int i = 0; i < 10; i++){
+    Serial.println("Hello");
+    delay(100);
+  }
   
-  // Initialize port pins
+  // // Initialize port pins
   initializePorts();
   
-  // Initialize CAN
+  // // Initialize CAN
   if (initializeCAN()) {
     Serial.println("CAN initialized successfully");
     Serial.println("Ready to receive commands...");
   } else {
     Serial.println("CAN initialization failed");
   }
+
+  for(int i = 0; i < 10; i++){
+    Serial.println("Hello");
+    delay(100);
+  }
 }
 
 void loop() {
+  // Serial.println("Looping...");
+  // delay(1000);
+
   // Continuously listen for CAN messages
   receiveCANMessages();
   delay(10); // Small delay to prevent overwhelming the CPU

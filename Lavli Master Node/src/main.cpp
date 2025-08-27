@@ -3,7 +3,7 @@
 
 // CAN pins - using valid ESP32-S3 GPIO pins
 #define CAN_TX_PIN GPIO_NUM_4
-#define CAN_RX_PIN GPIO_NUM_3
+#define CAN_RX_PIN GPIO_NUM_5
 
 // Message IDs for activate/deactivate commands
 #define ACTIVATE_CMD   0x01
@@ -31,30 +31,28 @@ void setup() {
   }
   
   // Initialize CAN
-  // if (initializeCAN()) {
-  //   Serial.println("CAN initialized successfully");
-  // } else {
-  //   Serial.println("CAN initialization failed");
-  // }
+  if (initializeCAN()) {
+    Serial.println("CAN initialized successfully");
+  } else {
+    Serial.println("CAN initialization failed");
+  }
 }
 
 void loop() {
   Serial.println("loop");
-  delay(500);
 
+  delay(5000);
   
-  // delay(5000);
+  // Activate port 3 on device with CAN address 0x123
+  activatePort(0x123, 3);
+
+  delay(5000);
+
+  // Deactivate port 3 on device with CAN address 0x123
+  deactivatePort(0x123, 3);
   
-  // // Activate port 3 on device with CAN address 0x123
-  // activatePort(0x123, 3);
-  
-  // delay(2000);
-  
-  // // Deactivate port 3 on device with CAN address 0x123
-  // deactivatePort(0x123, 3);
-  
-  // // Listen for incoming messages (optional)
-  // receiveCANMessages();
+  // Listen for incoming messages (optional)
+  receiveCANMessages();
 }
 
 bool initializeCAN() {
