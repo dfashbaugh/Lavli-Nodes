@@ -2,8 +2,8 @@
 #include <driver/twai.h>
 
 // CAN pins - using valid ESP32-S3 GPIO pins
-#define CAN_TX_PIN GPIO_NUM_21
-#define CAN_RX_PIN GPIO_NUM_20
+#define CAN_TX_PIN GPIO_NUM_4
+#define CAN_RX_PIN GPIO_NUM_3
 
 // Message IDs for activate/deactivate commands
 #define ACTIVATE_CMD   0x01
@@ -24,29 +24,37 @@ twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 void setup() {
   Serial.begin(115200);
+
+  for(int i = 0; i < 10; i++){
+    delay(500);
+    Serial.println("hello");
+  }
   
   // Initialize CAN
-  if (initializeCAN()) {
-    Serial.println("CAN initialized successfully");
-  } else {
-    Serial.println("CAN initialization failed");
-  }
+  // if (initializeCAN()) {
+  //   Serial.println("CAN initialized successfully");
+  // } else {
+  //   Serial.println("CAN initialization failed");
+  // }
 }
 
 void loop() {
-  // Example usage
-  delay(5000);
+  Serial.println("loop");
+  delay(500);
+
   
-  // Activate port 3 on device with CAN address 0x123
-  activatePort(0x123, 3);
+  // delay(5000);
   
-  delay(2000);
+  // // Activate port 3 on device with CAN address 0x123
+  // activatePort(0x123, 3);
   
-  // Deactivate port 3 on device with CAN address 0x123
-  deactivatePort(0x123, 3);
+  // delay(2000);
   
-  // Listen for incoming messages (optional)
-  receiveCANMessages();
+  // // Deactivate port 3 on device with CAN address 0x123
+  // deactivatePort(0x123, 3);
+  
+  // // Listen for incoming messages (optional)
+  // receiveCANMessages();
 }
 
 bool initializeCAN() {
