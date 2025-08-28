@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <driver/twai.h>
 
+#define DC_12V_BOARD
+// #define AC_120V_BOARD
+
 // CAN pins - using valid ESP32-S3 GPIO pins
 #define CAN_TX_PIN GPIO_NUM_4
 #define CAN_RX_PIN GPIO_NUM_5
@@ -9,9 +12,33 @@
 #define MY_CAN_ADDRESS 0x123
 
 // Port pin definitions - Map port numbers to GPIO pins
+#ifdef DC_12V_BOARD
+#define MAX_PORTS 3
 #define PORT_1_PIN GPIO_NUM_14
 #define PORT_2_PIN GPIO_NUM_15
 #define PORT_3_PIN GPIO_NUM_16
+
+// Port pin mapping array
+const int port_pins[MAX_PORTS + 1] = {
+  -1,           // Port 0 (invalid)
+  PORT_1_PIN,   // Port 1
+  PORT_2_PIN,   // Port 2
+  PORT_3_PIN,   // Port 3
+};
+#endif
+
+#ifdef AC_120V_BOARD
+#define MAX_PORTS 2
+#define PORT_1_PIN GPIO_NUM_18
+#define PORT_2_PIN GPIO_NUM_17
+
+// Port pin mapping array
+const int port_pins[MAX_PORTS + 1] = {
+  -1,           // Port 0 (invalid)
+  PORT_1_PIN,   // Port 1
+  PORT_2_PIN,   // Port 2
+};
+#endif
 // #define PORT_4_PIN GPIO_NUM_6
 // #define PORT_5_PIN GPIO_NUM_7
 // #define PORT_6_PIN GPIO_NUM_18
@@ -19,7 +46,7 @@
 // #define PORT_8_PIN GPIO_NUM_17
 
 // Maximum number of ports supported
-#define MAX_PORTS 3
+
 
 // Message command definitions
 #define ACTIVATE_CMD   0x01
@@ -40,18 +67,7 @@ void processReceivedMessage(twai_message_t* message);
 bool sendResponse(uint8_t command, uint8_t port, uint8_t status);
 int getGPIOForPort(int port_number);
 
-// Port pin mapping array
-const int port_pins[MAX_PORTS + 1] = {
-  -1,           // Port 0 (invalid)
-  PORT_1_PIN,   // Port 1
-  PORT_2_PIN,   // Port 2
-  PORT_3_PIN,   // Port 3
-  // PORT_4_PIN,   // Port 4
-  // PORT_5_PIN,   // Port 5
-  // PORT_6_PIN,   // Port 6
-  // PORT_7_PIN,   // Port 7
-  // PORT_8_PIN    // Port 8
-};
+
 
 // Port status tracking
 bool port_status[MAX_PORTS + 1] = {false}; // All ports start deactivated
