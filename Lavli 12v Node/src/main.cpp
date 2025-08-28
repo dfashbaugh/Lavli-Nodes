@@ -84,7 +84,7 @@ void setup() {
   delay(5000);
 
   for(int i = 0; i < 10; i++){
-    Serial.println("Hello");
+    Serial.println("Test");
     delay(100);
   }
   
@@ -98,11 +98,6 @@ void setup() {
   } else {
     Serial.println("CAN initialization failed");
   }
-
-  for(int i = 0; i < 10; i++){
-    Serial.println("Hello");
-    delay(100);
-  }
 }
 
 void loop() {
@@ -112,6 +107,16 @@ void loop() {
   // Continuously listen for CAN messages
   receiveCANMessages();
   delay(10); // Small delay to prevent overwhelming the CPU
+  // digitalWrite(GPIO_NUM_14, HIGH);
+  // digitalWrite(GPIO_NUM_15, HIGH);
+  // digitalWrite(GPIO_NUM_16, HIGH);
+  // Serial.println("Write High");
+  // delay(1000);
+  // digitalWrite(GPIO_NUM_14, LOW);
+  // digitalWrite(GPIO_NUM_15, LOW);
+  // digitalWrite(GPIO_NUM_16, LOW);
+  // Serial.println("Write Low");
+  // delay(1000);
 }
 
 bool initializeCAN() {
@@ -138,6 +143,7 @@ void initializePorts() {
     int gpio_pin = getGPIOForPort(port);
     if (gpio_pin != -1) {
       pinMode(gpio_pin, OUTPUT);
+      
       digitalWrite(gpio_pin, LOW); // Start with all ports OFF
       port_status[port] = false;
       Serial.printf("Port %d -> GPIO %d initialized (OFF)\n", port, gpio_pin);
@@ -155,6 +161,8 @@ int getGPIOForPort(int port_number) {
 }
 
 bool activatePort(int port_number) {
+  Serial.println("ACTIVATE PORT");
+
   int gpio_pin = getGPIOForPort(port_number);
   
   if (gpio_pin == -1) {
@@ -163,12 +171,15 @@ bool activatePort(int port_number) {
   }
   
   digitalWrite(gpio_pin, HIGH);
+  // Serial.println(gpio_pin + " set to HIGH");
   port_status[port_number] = true;
   Serial.printf("Port %d (GPIO %d) ACTIVATED\n", port_number, gpio_pin);
   return true;
 }
 
 bool deactivatePort(int port_number) {
+  Serial.println("DEACTIVATE PORT");
+
   int gpio_pin = getGPIOForPort(port_number);
   
   if (gpio_pin == -1) {
@@ -177,6 +188,7 @@ bool deactivatePort(int port_number) {
   }
   
   digitalWrite(gpio_pin, LOW);
+  // Serial.println(gpio_pin + " set to LOW");
   port_status[port_number] = false;
   Serial.printf("Port %d (GPIO %d) DEACTIVATED\n", port_number, gpio_pin);
   return true;
