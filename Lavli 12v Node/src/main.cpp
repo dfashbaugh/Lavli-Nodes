@@ -9,17 +9,17 @@
 #define MY_CAN_ADDRESS 0x123
 
 // Port pin definitions - Map port numbers to GPIO pins
-#define PORT_1_PIN GPIO_NUM_2
-#define PORT_2_PIN GPIO_NUM_21
-#define PORT_3_PIN GPIO_NUM_5
-#define PORT_4_PIN GPIO_NUM_6
-#define PORT_5_PIN GPIO_NUM_7
-#define PORT_6_PIN GPIO_NUM_15
-#define PORT_7_PIN GPIO_NUM_16
-#define PORT_8_PIN GPIO_NUM_17
+#define PORT_1_PIN GPIO_NUM_14
+#define PORT_2_PIN GPIO_NUM_15
+#define PORT_3_PIN GPIO_NUM_16
+// #define PORT_4_PIN GPIO_NUM_6
+// #define PORT_5_PIN GPIO_NUM_7
+// #define PORT_6_PIN GPIO_NUM_18
+// #define PORT_7_PIN GPIO_NUM_19
+// #define PORT_8_PIN GPIO_NUM_17
 
 // Maximum number of ports supported
-#define MAX_PORTS 8
+#define MAX_PORTS 3
 
 // Message command definitions
 #define ACTIVATE_CMD   0x01
@@ -46,11 +46,11 @@ const int port_pins[MAX_PORTS + 1] = {
   PORT_1_PIN,   // Port 1
   PORT_2_PIN,   // Port 2
   PORT_3_PIN,   // Port 3
-  PORT_4_PIN,   // Port 4
-  PORT_5_PIN,   // Port 5
-  PORT_6_PIN,   // Port 6
-  PORT_7_PIN,   // Port 7
-  PORT_8_PIN    // Port 8
+  // PORT_4_PIN,   // Port 4
+  // PORT_5_PIN,   // Port 5
+  // PORT_6_PIN,   // Port 6
+  // PORT_7_PIN,   // Port 7
+  // PORT_8_PIN    // Port 8
 };
 
 // Port status tracking
