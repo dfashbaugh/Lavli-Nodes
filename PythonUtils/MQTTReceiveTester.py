@@ -4,13 +4,13 @@ import paho.mqtt.client as mqtt
 import argparse
 import time
 
-def on_connect(client, userdata, flags, reason_code, properties):
-    if reason_code == 0:
-        print(f"Connected to MQTT broker with result code {reason_code}")
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print(f"Connected to MQTT broker with result code {rc}")
         client.subscribe(userdata['topic'])
         print(f"Subscribed to topic: {userdata['topic']}")
     else:
-        print(f"Failed to connect to MQTT broker with result code {reason_code}")
+        print(f"Failed to connect to MQTT broker with result code {rc}")
 
 def on_message(client, userdata, msg):
     print(f"Topic: {msg.topic}")
@@ -27,7 +27,7 @@ def main():
     
     args = parser.parse_args()
     
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client = mqtt.Client()
     client.user_data_set({'topic': args.topic})
     
     if args.username:
@@ -38,6 +38,7 @@ def main():
     
     try:
         print(f"Connecting to MQTT broker at {args.server}:{args.port}")
+        client.tls_set()  # use system CA certificates
         client.connect(args.server, args.port, 60)
         
         print("Starting MQTT client loop. Press Ctrl+C to exit...")

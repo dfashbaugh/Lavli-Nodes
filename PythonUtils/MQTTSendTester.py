@@ -39,6 +39,7 @@ def main():
     
     try:
         print(f"Connecting to MQTT broker at {args.server}:{args.port}")
+        client.tls_set()  # use system CA certificates
         client.connect(args.server, args.port, 60)
         client.loop_start()
         
