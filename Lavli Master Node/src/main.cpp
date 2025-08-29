@@ -85,8 +85,8 @@ void setup() {
   }
 }
 
-void loop() {
-  // Handle serial commands
+void doSerialControl()
+{
   if (Serial.available()) {
     String command = Serial.readStringUntil('\n');
     command.trim();
@@ -152,7 +152,12 @@ void loop() {
       }
     }
   }
-  
+}
+
+void loop() {
+  // Handle serial commands
+  doSerialControl();
+
   // Process incoming CAN messages
   receiveCANMessages();
   delay(10);
