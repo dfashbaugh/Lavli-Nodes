@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <driver/twai.h>
 
-#define DC_12V_BOARD
-// #define AC_120V_BOARD
+// #define DC_12V_BOARD
+#define AC_120V_BOARD
 
 // CAN pins - using valid ESP32-S3 GPIO pins
 #define CAN_TX_PIN GPIO_NUM_4
@@ -107,6 +107,17 @@ void loop() {
   // Continuously listen for CAN messages
   receiveCANMessages();
   delay(10); // Small delay to prevent overwhelming the CPU
+
+  // digitalWrite(PORT_1_PIN, HIGH);
+  // digitalWrite(PORT_2_PIN, HIGH);
+  // Serial.println("Write High");
+  // delay(2000);
+  // digitalWrite(PORT_1_PIN, LOW);
+  // digitalWrite(PORT_2_PIN, LOW);
+  // Serial.println("Write Low");
+  // delay(2000);
+
+
   // digitalWrite(GPIO_NUM_14, HIGH);
   // digitalWrite(GPIO_NUM_15, HIGH);
   // digitalWrite(GPIO_NUM_16, HIGH);
