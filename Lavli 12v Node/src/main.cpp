@@ -1,25 +1,52 @@
 #include <Arduino.h>
 #include <driver/twai.h>
 
+// #define DC_12V_BOARD
+#define AC_120V_BOARD
+
 // CAN pins - using valid ESP32-S3 GPIO pins
-#define CAN_TX_PIN GPIO_NUM_21
-#define CAN_RX_PIN GPIO_NUM_20
+#define CAN_TX_PIN GPIO_NUM_4
+#define CAN_RX_PIN GPIO_NUM_5
 
 // Device CAN address - Change this for each device on your network
 #define MY_CAN_ADDRESS 0x123
 
 // Port pin definitions - Map port numbers to GPIO pins
-#define PORT_1_PIN GPIO_NUM_2
-#define PORT_2_PIN GPIO_NUM_4
-#define PORT_3_PIN GPIO_NUM_5
-#define PORT_4_PIN GPIO_NUM_6
-#define PORT_5_PIN GPIO_NUM_7
-#define PORT_6_PIN GPIO_NUM_15
-#define PORT_7_PIN GPIO_NUM_16
-#define PORT_8_PIN GPIO_NUM_17
+#ifdef DC_12V_BOARD
+#define MAX_PORTS 3
+#define PORT_1_PIN GPIO_NUM_14
+#define PORT_2_PIN GPIO_NUM_15
+#define PORT_3_PIN GPIO_NUM_16
+
+// Port pin mapping array
+const int port_pins[MAX_PORTS + 1] = {
+  -1,           // Port 0 (invalid)
+  PORT_1_PIN,   // Port 1
+  PORT_2_PIN,   // Port 2
+  PORT_3_PIN,   // Port 3
+};
+#endif
+
+#ifdef AC_120V_BOARD
+#define MAX_PORTS 2
+#define PORT_1_PIN GPIO_NUM_18
+#define PORT_2_PIN GPIO_NUM_17
+
+// Port pin mapping array
+const int port_pins[MAX_PORTS + 1] = {
+  -1,           // Port 0 (invalid)
+  PORT_1_PIN,   // Port 1
+  PORT_2_PIN,   // Port 2
+};
+#endif
+// #define PORT_4_PIN GPIO_NUM_6
+// #define PORT_5_PIN GPIO_NUM_7
+// #define PORT_6_PIN GPIO_NUM_18
+// #define PORT_7_PIN GPIO_NUM_19
+// #define PORT_8_PIN GPIO_NUM_17
 
 // Maximum number of ports supported
-#define MAX_PORTS 8
+
 
 // Message command definitions
 #define ACTIVATE_CMD   0x01
@@ -40,18 +67,7 @@ void processReceivedMessage(twai_message_t* message);
 bool sendResponse(uint8_t command, uint8_t port, uint8_t status);
 int getGPIOForPort(int port_number);
 
-// Port pin mapping array
-const int port_pins[MAX_PORTS + 1] = {
-  -1,           // Port 0 (invalid)
-  PORT_1_PIN,   // Port 1
-  PORT_2_PIN,   // Port 2
-  PORT_3_PIN,   // Port 3
-  PORT_4_PIN,   // Port 4
-  PORT_5_PIN,   // Port 5
-  PORT_6_PIN,   // Port 6
-  PORT_7_PIN,   // Port 7
-  PORT_8_PIN    // Port 8
-};
+
 
 // Port status tracking
 bool port_status[MAX_PORTS + 1] = {false}; // All ports start deactivated
@@ -64,11 +80,18 @@ twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 void setup() {
   Serial.begin(115200);
   Serial.printf("CAN Receiver Device - Address: 0x%03X\n", MY_CAN_ADDRESS);
+
+  delay(5000);
+
+  for(int i = 0; i < 10; i++){
+    Serial.println("Test");
+    delay(100);
+  }
   
-  // Initialize port pins
+  // // Initialize port pins
   initializePorts();
   
-  // Initialize CAN
+  // // Initialize CAN
   if (initializeCAN()) {
     Serial.println("CAN initialized successfully");
     Serial.println("Ready to receive commands...");
@@ -78,9 +101,33 @@ void setup() {
 }
 
 void loop() {
+  // Serial.println("Looping...");
+  // delay(1000);
+
   // Continuously listen for CAN messages
   receiveCANMessages();
   delay(10); // Small delay to prevent overwhelming the CPU
+
+  // digitalWrite(PORT_1_PIN, HIGH);
+  // digitalWrite(PORT_2_PIN, HIGH);
+  // Serial.println("Write High");
+  // delay(2000);
+  // digitalWrite(PORT_1_PIN, LOW);
+  // digitalWrite(PORT_2_PIN, LOW);
+  // Serial.println("Write Low");
+  // delay(2000);
+
+
+  // digitalWrite(GPIO_NUM_14, HIGH);
+  // digitalWrite(GPIO_NUM_15, HIGH);
+  // digitalWrite(GPIO_NUM_16, HIGH);
+  // Serial.println("Write High");
+  // delay(1000);
+  // digitalWrite(GPIO_NUM_14, LOW);
+  // digitalWrite(GPIO_NUM_15, LOW);
+  // digitalWrite(GPIO_NUM_16, LOW);
+  // Serial.println("Write Low");
+  // delay(1000);
 }
 
 bool initializeCAN() {
@@ -107,6 +154,7 @@ void initializePorts() {
     int gpio_pin = getGPIOForPort(port);
     if (gpio_pin != -1) {
       pinMode(gpio_pin, OUTPUT);
+      
       digitalWrite(gpio_pin, LOW); // Start with all ports OFF
       port_status[port] = false;
       Serial.printf("Port %d -> GPIO %d initialized (OFF)\n", port, gpio_pin);
@@ -124,6 +172,8 @@ int getGPIOForPort(int port_number) {
 }
 
 bool activatePort(int port_number) {
+  Serial.println("ACTIVATE PORT");
+
   int gpio_pin = getGPIOForPort(port_number);
   
   if (gpio_pin == -1) {
@@ -132,12 +182,15 @@ bool activatePort(int port_number) {
   }
   
   digitalWrite(gpio_pin, HIGH);
+  // Serial.println(gpio_pin + " set to HIGH");
   port_status[port_number] = true;
   Serial.printf("Port %d (GPIO %d) ACTIVATED\n", port_number, gpio_pin);
   return true;
 }
 
 bool deactivatePort(int port_number) {
+  Serial.println("DEACTIVATE PORT");
+
   int gpio_pin = getGPIOForPort(port_number);
   
   if (gpio_pin == -1) {
@@ -146,6 +199,7 @@ bool deactivatePort(int port_number) {
   }
   
   digitalWrite(gpio_pin, LOW);
+  // Serial.println(gpio_pin + " set to LOW");
   port_status[port_number] = false;
   Serial.printf("Port %d (GPIO %d) DEACTIVATED\n", port_number, gpio_pin);
   return true;
