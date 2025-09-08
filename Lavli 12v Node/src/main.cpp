@@ -9,7 +9,7 @@
 #define CAN_RX_PIN GPIO_NUM_5
 
 // Device CAN address - Change this for each device on your network
-#define MY_CAN_ADDRESS 0x123
+#define MY_CAN_ADDRESS 0x543
 
 // Port pin definitions - Map port numbers to GPIO pins
 #ifdef DC_12V_BOARD

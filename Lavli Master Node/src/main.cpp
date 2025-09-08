@@ -1,5 +1,28 @@
 #include <Arduino.h>
 #include <driver/twai.h>
+#include <Adafruit_NeoPixel.h>
+#include <ESP32Encoder.h>
+
+
+// Interface Setup
+#define LED_PIN GPIO_NUM_8
+#define LED_COUNT 24
+#define ENCODER_A GPIO_NUM_5
+#define ENCODER_B GPIO_NUM_6
+#define ENCODER_SWITCH GPIO_NUM_7
+#define DEBOUNCE_DELAY 50
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+ESP32Encoder encoder;
+
+int lastEncoderValue = 0;
+int brightness = 50;
+bool lastSwitchState = HIGH;
+unsigned long lastDebounceTime = 0;
+
+// CAN IDs of Controllers
+#define CONTROLLER_120V_ADDRESS 0x543
+#define CONTROLLER_MOTOR_ADDRESS 0x311
+
 
 // CAN pins
 #define CAN_TX_PIN GPIO_NUM_4
@@ -59,11 +82,50 @@ SensorReading getDigitalReading(uint16_t device_address, uint8_t pin);
 void printSensorData(uint16_t device_address);
 uint8_t getDeviceIndex(uint16_t device_address);
 
+void setupInterface()
+{
+  strip.begin();
+  strip.show();
+  strip.setBrightness(brightness);
+  
+  ESP32Encoder::useInternalWeakPullResistors = puType::UP;
+  encoder.attachHalfQuad(ENCODER_A, ENCODER_B);
+  encoder.clearCount();
+
+  pinMode(ENCODER_SWITCH, INPUT_PULLUP);
+
+  for(int i = 0; i < LED_COUNT; i++){
+    strip.setPixelColor(i, strip.Color(0, 0, 255));
+  }
+  strip.show();
+}
+
+void handleSwitchPress() {
+  bool switchReading = digitalRead(ENCODER_SWITCH);
+  
+  // if (switchReading != lastSwitchState) {
+  //   lastDebounceTime = millis();
+  // }
+  
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+    if (switchReading != lastSwitchState) {
+      if (switchReading == LOW) {
+        // TODO: Do Switch functions in here
+      }
+      lastSwitchState = switchReading;
+    }
+
+    lastDebounceTime = millis();
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("CAN Master Node with Sensor Support");
   
   delay(2000);
+
+  setupInterface();
   
   // Initialize sensor data storage
   initializeSensorStorage();
@@ -160,6 +222,8 @@ void loop() {
 
   // Process incoming CAN messages
   receiveCANMessages();
+
+  handleSwitchPress();
   delay(10);
 }
 
