@@ -137,6 +137,37 @@ SensorReading getDigitalReading(uint16_t device_address, uint8_t pin);
 void printSensorData(uint16_t device_address);
 uint8_t getDeviceIndex(uint16_t device_address);
 
+enum MachineState {
+  STATE_OFF,
+  STATE_IDLE,
+  STATE_SELECT_DRY,
+  STATE_SELECT_WASH,
+  STATE_DRYING,
+  STATE_WASHING,
+};
+
+
+MachineState currentState = STATE_IDLE;
+
+void startWash()
+{
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50); 
+}
+
+void startDry()
+{
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 0);
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50);
+}
+
+void stopAll()
+{
+     sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 0);
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 1);
+}
+
+
 void setupInterface()
 {
   strip.begin();
@@ -163,10 +194,78 @@ void handleSwitchPress() {
       if (switchReading == LOW) {
         // TODO: Do Switch functions in here
         Serial.println("[SWITCH] Button pressed");
+
+        if(currentState == STATE_OFF) {
+          currentState = STATE_IDLE;
+        }
+        else if(currentState == STATE_SELECT_WASH){
+          currentState = STATE_WASHING;
+          startWash();
+        }
+        else if(currentState == STATE_SELECT_DRY){
+          currentState = STATE_DRYING;
+          startDry();
+        }
+        else if(currentState == STATE_WASHING || currentState == STATE_DRYING){
+          currentState = STATE_IDLE;
+          stopAll();
+        }
+
       }
       lastSwitchState = switchReading;
     }
     lastDebounceTime = millis();
+  }
+}
+
+void drawLEDs() {
+  if(currentState == STATE_OFF) {
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(0, 0, 0));
+    }
+  }
+  else if(currentState == STATE_IDLE){
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(255, 255, 255));
+    }
+  }
+  else if(currentState == STATE_SELECT_WASH){
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(0, 255, 0));
+    }
+  }
+  else if(currentState == STATE_SELECT_DRY){
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(255, 0, 0));
+    }
+  }
+  else if(currentState == STATE_DRYING){
+    for(int i = 0; i < LED_COUNT/2; i++){
+      strip.setPixelColor(i, strip.Color(0, 0, 255));
+    }
+  }
+  else if(currentState == STATE_WASHING){
+    for(int i = 0; i < LED_COUNT/2; i++){
+      strip.setPixelColor(i, strip.Color(255, 0, 0));
+    }
+  }
+
+  strip.show();
+}
+
+void readEncoder(){
+  int newValue = encoder.getCount();
+  newValue = newValue /4;
+  if (newValue != lastEncoderValue) {
+    
+    if(currentState == STATE_IDLE || currentState == STATE_SELECT_DRY){
+      currentState = STATE_SELECT_WASH;
+    }
+    else if(currentState == STATE_SELECT_WASH){
+      currentState = STATE_SELECT_DRY;
+    }
+
+    lastEncoderValue = newValue;
   }
 }
 
@@ -343,6 +442,8 @@ void loop() {
   receiveCANMessages();
 
   handleSwitchPress();
+  readEncoder();
+  drawLEDs();
   delay(10);
 }
 
@@ -514,6 +615,8 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   Serial.println("[MQTT] ========================\n");
 }
 
+
+
 void processMQTTCommands() {
   // Process dry command
   if (dryCommand.received) {
@@ -524,6 +627,7 @@ void processMQTTCommands() {
     // Example:
     // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 1);
     // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, ACTIVATE_CMD, dryCommand.value);
+    startDry();
     
     // Reset the command flag
     dryCommand.received = false;
@@ -535,8 +639,9 @@ void processMQTTCommands() {
     Serial.printf("[COMMAND] Wash value: %d\n", washCommand.value);
     
     // Start wash cycle with motor RPM
-    sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 2);
-    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, washCommand.value);
+    // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 2);
+    // sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, washCommand.value);
+    startWash();
     
     // Reset the command flag
     washCommand.received = false;
@@ -548,8 +653,10 @@ void processMQTTCommands() {
     Serial.printf("[COMMAND] Stop value: %d\n", stopCommand.value);
     
     // Stop all operations
-    sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
-    sendMotorStop(CONTROLLER_MOTOR_ADDRESS);
+    // sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
+    // sendMotorStop(CONTROLLER_MOTOR_ADDRESS);
+    stopAll();
+   
     
     // Reset the command flag
     stopCommand.received = false;
