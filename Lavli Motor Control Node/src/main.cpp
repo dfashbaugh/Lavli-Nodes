@@ -5,12 +5,13 @@
 // Device CAN address - This should match CONTROLLER_MOTOR_ADDRESS in master (0x311)
 #define MY_CAN_ADDRESS 0x311
 
-// CAN pins - using valid ESP32-S3 GPIO pins
+// CAN pins - using valid ESP32-S3 GPIO pins (matching master node)
 #define CAN_TX_PIN GPIO_NUM_4
 #define CAN_RX_PIN GPIO_NUM_5
 
 // Motor controller serial pins
 #define MOTOR_TX_PIN 18  // TX to motor controller (ESP32 TX -> Motor RX)
+#define MOTOR_PULSE_PIN 8
 #define MOTOR_RX_PIN 17  // RX from motor controller (ESP32 RX -> Motor TX)
 
 // Motor control command definitions (from master)
@@ -30,6 +31,7 @@
 HardwareSerial motorSerial(1); // Use UART1
 
 // Motor state variables
+uint16_t commandedRPM = 0;
 uint16_t currentRPM = 0;
 uint16_t actualRPM = 0;
 String currentDirection = "CCW";  // Default direction
@@ -65,6 +67,8 @@ void setup() {
   delay(2000);
 
   // Initialize motor serial communication
+  pinMode(MOTOR_PULSE_PIN, OUTPUT);
+  digitalWrite(MOTOR_PULSE_PIN, LOW); // Ensure pulse pin is low
   motorSerial.begin(9600, SERIAL_8N1, MOTOR_RX_PIN, MOTOR_TX_PIN); // Initialize UART1 with pins
   Serial.println("Motor SoftwareSerial initialized at 9600 baud");
 
@@ -81,7 +85,18 @@ void setup() {
   requestMotorStatus();
 }
 
+void sendRPMAsPulse()
+{
+  pinMode(MOTOR_PULSE_PIN, INPUT);
+  delay(commandedRPM/4);
+  pinMode(MOTOR_PULSE_PIN, OUTPUT);
+  digitalWrite(MOTOR_PULSE_PIN, LOW);
+  delay(commandedRPM/4);
+}
+
 void loop() {
+  commandedRPM = 50;
+
   // Listen for CAN messages
   receiveCANMessages();
   
@@ -93,9 +108,9 @@ void loop() {
     requestMotorStatus();
     lastStatusRequest = millis();
     Serial.println("Requested motor status update");
-
-    setMotorRPM(100);
   }
+
+  sendRPMAsPulse();
 
   delay(10);
 }
@@ -265,7 +280,7 @@ void requestMotorStatus() {
   motorSerial.println("STATUS");
 }
 
-void                                                                                                                                   readMotorResponse() {
+void readMotorResponse() {
   while (motorSerial.available()) {
     // Serial.println("Reading from motor serial...");
 

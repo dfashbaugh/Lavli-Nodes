@@ -15,8 +15,8 @@
 #define MQTT_PASSWORD "lavlidevbroker!321"
 #define AP_NAME "Lavli-CAN-Master"
 
-#define WIFI_SSID "Verizon_ZK3NRK"
-#define WIFI_PASSWORD "farm9scope3eddy"
+#define WIFI_SSID "PKFLetsKickIt"
+#define WIFI_PASSWORD "ClarkIsACat"
 
 // MQTT Topics
 #define TOPIC_DRY "/lavli/dry"
@@ -26,7 +26,7 @@
 // Interface Setup
 #define LED_PIN GPIO_NUM_8
 #define LED_COUNT 24
-#define ENCODER_A GPIO_NUM_5
+#define ENCODER_A GPIO_NUM_9
 #define ENCODER_B GPIO_NUM_6
 #define ENCODER_SWITCH GPIO_NUM_7
 #define DEBOUNCE_DELAY 50
@@ -60,7 +60,7 @@ MQTTCommand stopCommand = {false, 0, 0};
 
 // CAN pins
 #define CAN_TX_PIN GPIO_NUM_4
-#define CAN_RX_PIN GPIO_NUM_3  // Changed from GPIO_NUM_5 to avoid conflict with encoder
+#define CAN_RX_PIN GPIO_NUM_5  
 
 // Command definitions for output control
 #define ACTIVATE_CMD   0x01
@@ -72,6 +72,12 @@ MQTTCommand stopCommand = {false, 0, 0};
 #define READ_ALL_ANALOG_CMD 0x05
 #define READ_ALL_DIGITAL_CMD 0x06
 
+// Motor command definitions (matching motor control node)
+#define MOTOR_SET_RPM_CMD     0x30
+#define MOTOR_SET_DIRECTION_CMD 0x31
+#define MOTOR_STOP_CMD        0x32
+#define MOTOR_STATUS_CMD      0x33
+
 // Response command definitions
 #define ACK_ACTIVATE      0x10
 #define ACK_DEACTIVATE    0x11
@@ -79,6 +85,10 @@ MQTTCommand stopCommand = {false, 0, 0};
 #define DIGITAL_DATA      0x21
 #define ALL_ANALOG_DATA   0x22
 #define ALL_DIGITAL_DATA  0x23
+#define ACK_MOTOR_RPM         0x40
+#define ACK_MOTOR_DIRECTION   0x41
+#define ACK_MOTOR_STOP        0x42
+#define MOTOR_STATUS_DATA     0x43
 #define ERROR_RESPONSE    0xFF
 
 // Sensor data structure for storing received values
@@ -115,6 +125,10 @@ bool requestAnalogReading(uint16_t device_address, uint8_t pin);
 bool requestDigitalReading(uint16_t device_address, uint8_t pin);
 bool requestAllAnalogReadings(uint16_t device_address);
 bool requestAllDigitalReadings(uint16_t device_address);
+bool sendMotorRPM(uint16_t device_address, uint16_t rpm);
+bool sendMotorDirection(uint16_t device_address, bool clockwise);
+bool sendMotorStop(uint16_t device_address);
+bool requestMotorStatus(uint16_t device_address);
 void receiveCANMessages();
 void processReceivedMessage(twai_message_t* message);
 void storeSensorReading(uint16_t device_address, uint8_t pin, uint16_t value, bool is_analog);
@@ -205,6 +219,10 @@ void setup() {
   Serial.println("  all_analog <addr>         - Read all analog pins");
   Serial.println("  all_digital <addr>        - Read all digital pins");
   Serial.println("  status <addr>             - Show sensor data for device");
+  Serial.println("  motor_rpm <addr> <rpm>    - Set motor RPM (0-1500)");
+  Serial.println("  motor_direction <addr> <0|1> - Set motor direction (0=CCW, 1=CW)");
+  Serial.println("  motor_stop <addr>         - Stop motor");
+  Serial.println("  motor_status <addr>       - Request motor status");
   Serial.println("MQTT Topics subscribed:");
   Serial.println("  " + String(TOPIC_DRY) + " - Dry command");
   Serial.println("  " + String(TOPIC_WASH) + " - Wash command");
@@ -273,6 +291,32 @@ void doSerialControl()
       }
       else if (cmd == "status") {
         printSensorData(device_addr);
+      }
+      else if (cmd == "motor_rpm") {
+        if (param_str.length() > 0) {
+          Serial.printf("Setting motor RPM to %d on device 0x%03X\n", param, device_addr);
+          sendMotorRPM(device_addr, param);
+        } else {
+          Serial.println("Usage: motor_rpm <addr> <rpm>");
+        }
+      }
+      else if (cmd == "motor_direction") {
+        if (param_str.length() > 0) {
+          bool clockwise = (param != 0);
+          Serial.printf("Setting motor direction to %s on device 0x%03X\n", 
+                        clockwise ? "CW" : "CCW", device_addr);
+          sendMotorDirection(device_addr, clockwise);
+        } else {
+          Serial.println("Usage: motor_direction <addr> <0=CCW|1=CW>");
+        }
+      }
+      else if (cmd == "motor_stop") {
+        Serial.printf("Stopping motor on device 0x%03X\n", device_addr);
+        sendMotorStop(device_addr);
+      }
+      else if (cmd == "motor_status") {
+        Serial.printf("Requesting motor status from device 0x%03X\n", device_addr);
+        requestMotorStatus(device_addr);
       }
       else {
         Serial.println("Unknown command");
@@ -490,10 +534,9 @@ void processMQTTCommands() {
     Serial.println("[COMMAND] Processing WASH command");
     Serial.printf("[COMMAND] Wash value: %d\n", washCommand.value);
     
-    // TODO: Add your CAN command sequence for wash operation here
-    // Example:
-    // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 2);
-    // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, ACTIVATE_CMD, washCommand.value);
+    // Start wash cycle with motor RPM
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 2);
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, washCommand.value);
     
     // Reset the command flag
     washCommand.received = false;
@@ -504,10 +547,9 @@ void processMQTTCommands() {
     Serial.println("[COMMAND] Processing STOP command");
     Serial.printf("[COMMAND] Stop value: %d\n", stopCommand.value);
     
-    // TODO: Add your CAN command sequence for stop operation here
-    // Example:
-    // sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
-    // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, DEACTIVATE_CMD, 0);
+    // Stop all operations
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
+    sendMotorStop(CONTROLLER_MOTOR_ADDRESS);
     
     // Reset the command flag
     stopCommand.received = false;
@@ -633,7 +675,7 @@ void processReceivedMessage(twai_message_t* message) {
       }
       break;
       
-    case ACK_MOTOR_SPEED:
+    case ACK_MOTOR_RPM:
       if (message->data_length_code >= 4) {
         uint16_t confirmed_speed = (message->data[1] << 8) | message->data[2];
         Serial.printf("Motor speed command acknowledged: Speed %d, Status 0x%02X\n", 
@@ -769,4 +811,55 @@ void printSensorData(uint16_t device_address) {
 uint8_t getDeviceIndex(uint16_t device_address) {
   // Simple mapping - you might want a more sophisticated approach
   return device_address % MAX_DEVICES;
+}
+
+bool sendMotorRPM(uint16_t device_address, uint16_t rpm) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 3;
+  message.data[0] = MOTOR_SET_RPM_CMD;
+  message.data[1] = (rpm >> 8) & 0xFF;  // High byte
+  message.data[2] = rpm & 0xFF;         // Low byte
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool sendMotorDirection(uint16_t device_address, bool clockwise) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 2;
+  message.data[0] = MOTOR_SET_DIRECTION_CMD;
+  message.data[1] = clockwise ? 1 : 0;
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool sendMotorStop(uint16_t device_address) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 1;
+  message.data[0] = MOTOR_STOP_CMD;
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool requestMotorStatus(uint16_t device_address) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 1;
+  message.data[0] = MOTOR_STATUS_CMD;
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
 }
