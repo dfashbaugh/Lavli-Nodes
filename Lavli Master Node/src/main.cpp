@@ -24,11 +24,11 @@
 #define TOPIC_STOP "/lavli/stop"
 
 // Interface Setup
-#define LED_PIN GPIO_NUM_8
+#define LED_PIN GPIO_NUM_6
 #define LED_COUNT 24
-#define ENCODER_A GPIO_NUM_9
-#define ENCODER_B GPIO_NUM_6
-#define ENCODER_SWITCH GPIO_NUM_7
+#define ENCODER_A GPIO_NUM_7
+#define ENCODER_B GPIO_NUM_8
+#define ENCODER_SWITCH GPIO_NUM_9
 #define DEBOUNCE_DELAY 50
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 ESP32Encoder encoder;

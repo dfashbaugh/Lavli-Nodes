@@ -95,7 +95,7 @@ void sendRPMAsPulse()
 }
 
 void loop() {
-  commandedRPM = 50;
+  // commandedRPM = 50;
 
   // Listen for CAN messages
   receiveCANMessages();
