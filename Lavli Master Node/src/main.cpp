@@ -2,7 +2,26 @@
 #include <driver/twai.h>
 #include <Adafruit_NeoPixel.h>
 #include <ESP32Encoder.h>
+#include <WiFi.h>
+#include <WiFiManager.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
 
+// MQTT Configuration
+#define USE_PROVISIONING false
+#define MQTT_BROKER "b-f3e16066-c8b5-48a8-81b0-bc3347afef80-1.mq.us-east-1.amazonaws.com"
+#define MQTT_PORT 8883
+#define MQTT_USERNAME "admin"
+#define MQTT_PASSWORD "lavlidevbroker!321"
+#define AP_NAME "Lavli-CAN-Master"
+
+#define WIFI_SSID "Verizon_ZK3NRK"
+#define WIFI_PASSWORD "farm9scope3eddy"
+
+// MQTT Topics
+#define TOPIC_DRY "/lavli/dry"
+#define TOPIC_WASH "/lavli/wash"
+#define TOPIC_STOP "/lavli/stop"
 
 // Interface Setup
 #define LED_PIN GPIO_NUM_8
@@ -19,14 +38,29 @@ int brightness = 50;
 bool lastSwitchState = HIGH;
 unsigned long lastDebounceTime = 0;
 
+// WiFi and MQTT clients
+WiFiClientSecure espClient;
+PubSubClient mqttClient(espClient);
+WiFiManager wifiManager;
+
+// MQTT Command Variables
+struct MQTTCommand {
+  bool received;
+  int value;
+  unsigned long timestamp;
+};
+
+MQTTCommand dryCommand = {false, 0, 0};
+MQTTCommand washCommand = {false, 0, 0};
+MQTTCommand stopCommand = {false, 0, 0};
+
 // CAN IDs of Controllers
 #define CONTROLLER_120V_ADDRESS 0x543
 #define CONTROLLER_MOTOR_ADDRESS 0x311
 
-
 // CAN pins
 #define CAN_TX_PIN GPIO_NUM_4
-#define CAN_RX_PIN GPIO_NUM_5
+#define CAN_RX_PIN GPIO_NUM_3  // Changed from GPIO_NUM_5 to avoid conflict with encoder
 
 // Command definitions for output control
 #define ACTIVATE_CMD   0x01
@@ -67,6 +101,13 @@ twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // Function prototypes
+void setupWiFi();
+void configModeCallback(WiFiManager *myWiFiManager);
+void saveConfigCallback();
+void connectToMQTT();
+void onMqttMessage(char* topic, byte* payload, unsigned int length);
+void processMQTTCommands();
+
 bool initializeCAN();
 void initializeSensorStorage();
 bool sendOutputCommand(uint16_t device_address, uint8_t command, uint8_t port);
@@ -103,48 +144,72 @@ void setupInterface()
 void handleSwitchPress() {
   bool switchReading = digitalRead(ENCODER_SWITCH);
   
-  // if (switchReading != lastSwitchState) {
-  //   lastDebounceTime = millis();
-  // }
-  
   if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
     if (switchReading != lastSwitchState) {
       if (switchReading == LOW) {
         // TODO: Do Switch functions in here
+        Serial.println("[SWITCH] Button pressed");
       }
       lastSwitchState = switchReading;
     }
-
     lastDebounceTime = millis();
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("CAN Master Node with Sensor Support");
+  Serial.println("\n=== Lavli CAN Master with MQTT Starting ===");
+  Serial.println("[SETUP] Serial initialized at 115200 baud");
   
   delay(2000);
 
   setupInterface();
+  Serial.println("[SETUP] Interface initialized");
   
   // Initialize sensor data storage
   initializeSensorStorage();
+  Serial.println("[SETUP] Sensor storage initialized");
   
   // Initialize CAN
   if (initializeCAN()) {
-    Serial.println("CAN initialized successfully");
-    Serial.println("Commands:");
-    Serial.println("  activate <addr> <port>    - Activate output port");
-    Serial.println("  deactivate <addr> <port>  - Deactivate output port");
-    Serial.println("  analog <addr> <pin>       - Read analog pin");
-    Serial.println("  digital <addr> <pin>      - Read digital pin");
-    Serial.println("  all_analog <addr>         - Read all analog pins");
-    Serial.println("  all_digital <addr>        - Read all digital pins");
-    Serial.println("  status <addr>             - Show sensor data for device");
-    Serial.println();
+    Serial.println("[SETUP] CAN initialized successfully");
   } else {
-    Serial.println("CAN initialization failed");
+    Serial.println("[SETUP] CAN initialization failed");
   }
+  
+  Serial.println("[SETUP] Starting WiFi setup...");
+  setupWiFi();
+  Serial.println("[SETUP] WiFi setup complete");
+  
+  Serial.println("[SETUP] Configuring TLS client (insecure mode)");
+  espClient.setInsecure();
+  
+  Serial.print("[SETUP] Setting MQTT server: ");
+  Serial.print(MQTT_BROKER);
+  Serial.print(":");
+  Serial.println(MQTT_PORT);
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  
+  Serial.println("[SETUP] Setting MQTT callback function");
+  mqttClient.setCallback(onMqttMessage);
+  
+  Serial.println("[SETUP] Attempting initial MQTT connection...");
+  connectToMQTT();
+  
+  Serial.println("[SETUP] Setup complete!");
+  Serial.println("Commands:");
+  Serial.println("  activate <addr> <port>    - Activate output port");
+  Serial.println("  deactivate <addr> <port>  - Deactivate output port");
+  Serial.println("  analog <addr> <pin>       - Read analog pin");
+  Serial.println("  digital <addr> <pin>      - Read digital pin");
+  Serial.println("  all_analog <addr>         - Read all analog pins");
+  Serial.println("  all_digital <addr>        - Read all digital pins");
+  Serial.println("  status <addr>             - Show sensor data for device");
+  Serial.println("MQTT Topics subscribed:");
+  Serial.println("  " + String(TOPIC_DRY) + " - Dry command");
+  Serial.println("  " + String(TOPIC_WASH) + " - Wash command");
+  Serial.println("  " + String(TOPIC_STOP) + " - Stop command");
+  Serial.println();
 }
 
 void doSerialControl()
@@ -217,6 +282,16 @@ void doSerialControl()
 }
 
 void loop() {
+  // Handle MQTT connection
+  if (!mqttClient.connected()) {
+    Serial.println("[LOOP] MQTT disconnected, attempting reconnection...");
+    connectToMQTT();
+  }
+  mqttClient.loop();
+  
+  // Process MQTT commands
+  processMQTTCommands();
+
   // Handle serial commands
   doSerialControl();
 
@@ -225,6 +300,218 @@ void loop() {
 
   handleSwitchPress();
   delay(10);
+}
+
+void setupWiFi() {
+  Serial.println("[WIFI] Setting up WiFi...");
+  
+  if (USE_PROVISIONING) {
+    Serial.println("[WIFI] Using WiFiManager provisioning mode");
+    wifiManager.setAPCallback(configModeCallback);
+    wifiManager.setSaveConfigCallback(saveConfigCallback);
+    
+    Serial.println("[WIFI] Starting WiFiManager autoConnect...");
+    if (!wifiManager.autoConnect(AP_NAME)) {
+      Serial.println("[WIFI] ERROR: Failed to connect and hit timeout");
+      Serial.println("[WIFI] Restarting ESP32...");
+      ESP.restart();
+    }
+  } else {
+    Serial.println("[WIFI] Using hardcoded credentials mode");
+    Serial.print("[WIFI] SSID: ");
+    Serial.println(WIFI_SSID);
+    Serial.println("[WIFI] Starting WiFi connection...");
+    
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("[WIFI] Connecting to ");
+    Serial.print(WIFI_SSID);
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+      if (attempts > 60) {
+        Serial.println("");
+        Serial.println("[WIFI] ERROR: Connection timeout after 30 seconds");
+        Serial.println("[WIFI] Restarting ESP32...");
+        ESP.restart();
+      }
+    }
+    Serial.println("");
+  }
+  
+  Serial.println("[WIFI] WiFi connected successfully!");
+  Serial.print("[WIFI] IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("[WIFI] MAC address: ");
+  Serial.println(WiFi.macAddress());
+  Serial.print("[WIFI] Signal strength (RSSI): ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
+}
+
+void configModeCallback(WiFiManager *myWiFiManager) {
+  Serial.println("[WIFI] Entered config mode");
+  Serial.println("[WIFI] AP Name: " + String(AP_NAME));
+  Serial.println("[WIFI] IP: " + WiFi.softAPIP().toString());
+}
+
+void saveConfigCallback() {
+  Serial.println("[WIFI] WiFi configuration saved");
+}
+
+void connectToMQTT() {
+  int attempts = 0;
+  while (!mqttClient.connected()) {
+    attempts++;
+    Serial.print("[MQTT] Attempt #");
+    Serial.print(attempts);
+    Serial.print(" - Connecting to ");
+    Serial.print(MQTT_BROKER);
+    Serial.print(":");
+    Serial.println(MQTT_PORT);
+    
+    String clientId = "LavliCANMaster-" + String(random(0xffff), HEX);
+    Serial.print("[MQTT] Client ID: ");
+    Serial.println(clientId);
+    Serial.print("[MQTT] Username: ");
+    Serial.println(MQTT_USERNAME);
+    Serial.println("[MQTT] Establishing TLS connection...");
+    
+    if (mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
+      Serial.println("[MQTT] ✓ Connected successfully!");
+      
+      // Subscribe to all command topics
+      Serial.print("[MQTT] Subscribing to topics...");
+      bool allSubscribed = true;
+      
+      if (mqttClient.subscribe(TOPIC_DRY)) {
+        Serial.print(" " + String(TOPIC_DRY) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_DRY) + " ✗");
+        allSubscribed = false;
+      }
+      
+      if (mqttClient.subscribe(TOPIC_WASH)) {
+        Serial.print(" " + String(TOPIC_WASH) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_WASH) + " ✗");
+        allSubscribed = false;
+      }
+      
+      if (mqttClient.subscribe(TOPIC_STOP)) {
+        Serial.print(" " + String(TOPIC_STOP) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_STOP) + " ✗");
+        allSubscribed = false;
+      }
+      
+      Serial.println();
+      
+      if (allSubscribed) {
+        Serial.println("[MQTT] ✓ Successfully subscribed to all topics!");
+        Serial.println("[MQTT] Ready to receive commands!");
+      } else {
+        Serial.println("[MQTT] ✗ Failed to subscribe to some topics");
+      }
+    } else {
+      Serial.print("[MQTT] ✗ Connection failed, error code: ");
+      Serial.print(mqttClient.state());
+      Serial.println(" (see PubSubClient.h for error codes)");
+      Serial.println("[MQTT] Retrying in 5 seconds...");
+      delay(5000);
+    }
+  }
+}
+
+void onMqttMessage(char* topic, byte* payload, unsigned int length) {
+  Serial.println("\n[MQTT] ===== MESSAGE RECEIVED =====");
+  Serial.print("[MQTT] Topic: ");
+  Serial.println(topic);
+  Serial.print("[MQTT] Length: ");
+  Serial.print(length);
+  Serial.println(" bytes");
+  Serial.print("[MQTT] Data: ");
+  
+  // Convert payload to string
+  String message = "";
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+  
+  // Parse the numeric value from the message
+  int value = message.toInt();
+  Serial.print("[MQTT] Parsed value: ");
+  Serial.println(value);
+  
+  // Store the command based on topic
+  if (strcmp(topic, TOPIC_DRY) == 0) {
+    dryCommand.received = true;
+    dryCommand.value = value;
+    dryCommand.timestamp = millis();
+    Serial.println("[MQTT] Dry command received");
+  }
+  else if (strcmp(topic, TOPIC_WASH) == 0) {
+    washCommand.received = true;
+    washCommand.value = value;
+    washCommand.timestamp = millis();
+    Serial.println("[MQTT] Wash command received");
+  }
+  else if (strcmp(topic, TOPIC_STOP) == 0) {
+    stopCommand.received = true;
+    stopCommand.value = value;
+    stopCommand.timestamp = millis();
+    Serial.println("[MQTT] Stop command received");
+  }
+  
+  Serial.println("[MQTT] ========================\n");
+}
+
+void processMQTTCommands() {
+  // Process dry command
+  if (dryCommand.received) {
+    Serial.println("[COMMAND] Processing DRY command");
+    Serial.printf("[COMMAND] Dry value: %d\n", dryCommand.value);
+    
+    // TODO: Add your CAN command sequence for dry operation here
+    // Example:
+    // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 1);
+    // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, ACTIVATE_CMD, dryCommand.value);
+    
+    // Reset the command flag
+    dryCommand.received = false;
+  }
+  
+  // Process wash command
+  if (washCommand.received) {
+    Serial.println("[COMMAND] Processing WASH command");
+    Serial.printf("[COMMAND] Wash value: %d\n", washCommand.value);
+    
+    // TODO: Add your CAN command sequence for wash operation here
+    // Example:
+    // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 2);
+    // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, ACTIVATE_CMD, washCommand.value);
+    
+    // Reset the command flag
+    washCommand.received = false;
+  }
+  
+  // Process stop command
+  if (stopCommand.received) {
+    Serial.println("[COMMAND] Processing STOP command");
+    Serial.printf("[COMMAND] Stop value: %d\n", stopCommand.value);
+    
+    // TODO: Add your CAN command sequence for stop operation here
+    // Example:
+    // sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
+    // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, DEACTIVATE_CMD, 0);
+    
+    // Reset the command flag
+    stopCommand.received = false;
+  }
 }
 
 bool initializeCAN() {
@@ -343,6 +630,14 @@ void processReceivedMessage(twai_message_t* message) {
       if (message->data_length_code >= 3) {
         Serial.printf("Output command acknowledged: Port %d, Status 0x%02X\n", 
                       message->data[1], message->data[2]);
+      }
+      break;
+      
+    case ACK_MOTOR_SPEED:
+      if (message->data_length_code >= 4) {
+        uint16_t confirmed_speed = (message->data[1] << 8) | message->data[2];
+        Serial.printf("Motor speed command acknowledged: Speed %d, Status 0x%02X\n", 
+                      confirmed_speed, message->data[3]);
       }
       break;
       
