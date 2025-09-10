@@ -30,6 +30,9 @@
 #define ENCODER_B GPIO_NUM_8
 #define ENCODER_SWITCH GPIO_NUM_9
 #define DEBOUNCE_DELAY 50
+
+// Program Timer Configuration
+#define PROGRAM_DURATION_MS (10 * 60 * 1000)  // 10 minutes in milliseconds
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 ESP32Encoder encoder;
 
@@ -37,6 +40,13 @@ int lastEncoderValue = 0;
 int brightness = 50;
 bool lastSwitchState = HIGH;
 unsigned long lastDebounceTime = 0;
+
+// Program timing variables
+unsigned long programStartTime = 0;
+unsigned long programDurationMs = PROGRAM_DURATION_MS;
+bool fadeInActive = false;
+unsigned long fadeStartTime = 0;
+#define FADE_DURATION_MS 2000
 
 // WiFi and MQTT clients
 WiFiClientSecure espClient;
@@ -151,20 +161,38 @@ MachineState currentState = STATE_IDLE;
 
 void startWash()
 {
-    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50); 
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50);
+    programStartTime = millis();
+    currentState = STATE_WASHING;
 }
 
 void startDry()
 {
     sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 0);
     sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50);
+    programStartTime = millis();
+    currentState = STATE_DRYING;
 }
 
 void stopAll()
 {
-     sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 0);
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 0);
     sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
     sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 1);
+    programStartTime = 0;
+    currentState = STATE_IDLE;
+}
+
+bool isProgramTimeElapsed() {
+    if (programStartTime == 0) return false;
+    return (millis() - programStartTime) >= programDurationMs;
+}
+
+void checkProgramTimer() {
+    if ((currentState == STATE_WASHING || currentState == STATE_DRYING) && isProgramTimeElapsed()) {
+        Serial.println("[TIMER] Program duration completed, stopping all operations");
+        stopAll();
+    }
 }
 
 
@@ -197,17 +225,16 @@ void handleSwitchPress() {
 
         if(currentState == STATE_OFF) {
           currentState = STATE_IDLE;
+          fadeInActive = true;
+          fadeStartTime = millis();
         }
         else if(currentState == STATE_SELECT_WASH){
-          currentState = STATE_WASHING;
           startWash();
         }
         else if(currentState == STATE_SELECT_DRY){
-          currentState = STATE_DRYING;
           startDry();
         }
         else if(currentState == STATE_WASHING || currentState == STATE_DRYING){
-          currentState = STATE_IDLE;
           stopAll();
         }
 
@@ -219,6 +246,23 @@ void handleSwitchPress() {
 }
 
 void drawLEDs() {
+  // Handle fade-in animation
+  if (fadeInActive) {
+    unsigned long fadeElapsed = millis() - fadeStartTime;
+    if (fadeElapsed >= FADE_DURATION_MS) {
+      fadeInActive = false;
+    } else {
+      float fadeProgress = (float)fadeElapsed / FADE_DURATION_MS;
+      uint8_t alpha = (uint8_t)(255 * fadeProgress);
+      
+      for(int i = 0; i < LED_COUNT; i++){
+        strip.setPixelColor(i, strip.Color(alpha, alpha, alpha));
+      }
+      strip.show();
+      return;
+    }
+  }
+  
   if(currentState == STATE_OFF) {
     for(int i = 0; i < LED_COUNT; i++){
       strip.setPixelColor(i, strip.Color(0, 0, 0));
@@ -239,14 +283,30 @@ void drawLEDs() {
       strip.setPixelColor(i, strip.Color(255, 0, 0));
     }
   }
-  else if(currentState == STATE_DRYING){
-    for(int i = 0; i < LED_COUNT/2; i++){
-      strip.setPixelColor(i, strip.Color(0, 0, 255));
-    }
-  }
-  else if(currentState == STATE_WASHING){
-    for(int i = 0; i < LED_COUNT/2; i++){
-      strip.setPixelColor(i, strip.Color(255, 0, 0));
+  else if(currentState == STATE_DRYING || currentState == STATE_WASHING){
+    // Calculate remaining time and LEDs to show
+    if (programStartTime > 0) {
+      unsigned long elapsed = millis() - programStartTime;
+      unsigned long remaining = (elapsed >= programDurationMs) ? 0 : (programDurationMs - elapsed);
+      float remainingPercent = (float)remaining / programDurationMs;
+      int ledsToShow = (int)(LED_COUNT * remainingPercent);
+      
+      // Set color based on program type
+      uint32_t color;
+      if (currentState == STATE_DRYING) {
+        color = strip.Color(255, 100, 0); // Orange for drying
+      } else {
+        color = strip.Color(0, 100, 255); // Blue for washing
+      }
+      
+      // Light up LEDs for remaining time
+      for(int i = 0; i < LED_COUNT; i++){
+        if (i < ledsToShow) {
+          strip.setPixelColor(i, color);
+        } else {
+          strip.setPixelColor(i, strip.Color(0, 0, 0));
+        }
+      }
     }
   }
 
@@ -441,6 +501,9 @@ void loop() {
   // Process incoming CAN messages
   receiveCANMessages();
 
+  // Check program timer
+  checkProgramTimer();
+
   handleSwitchPress();
   readEncoder();
   drawLEDs();
@@ -622,11 +685,8 @@ void processMQTTCommands() {
   if (dryCommand.received) {
     Serial.println("[COMMAND] Processing DRY command");
     Serial.printf("[COMMAND] Dry value: %d\n", dryCommand.value);
+    Serial.printf("[COMMAND] Starting dry cycle for %lu minutes\n", programDurationMs / 60000);
     
-    // TODO: Add your CAN command sequence for dry operation here
-    // Example:
-    // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 1);
-    // sendOutputCommand(CONTROLLER_MOTOR_ADDRESS, ACTIVATE_CMD, dryCommand.value);
     startDry();
     
     // Reset the command flag
@@ -637,10 +697,8 @@ void processMQTTCommands() {
   if (washCommand.received) {
     Serial.println("[COMMAND] Processing WASH command");
     Serial.printf("[COMMAND] Wash value: %d\n", washCommand.value);
+    Serial.printf("[COMMAND] Starting wash cycle for %lu minutes\n", programDurationMs / 60000);
     
-    // Start wash cycle with motor RPM
-    // sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 2);
-    // sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, washCommand.value);
     startWash();
     
     // Reset the command flag
@@ -652,11 +710,7 @@ void processMQTTCommands() {
     Serial.println("[COMMAND] Processing STOP command");
     Serial.printf("[COMMAND] Stop value: %d\n", stopCommand.value);
     
-    // Stop all operations
-    // sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
-    // sendMotorStop(CONTROLLER_MOTOR_ADDRESS);
     stopAll();
-   
     
     // Reset the command flag
     stopCommand.received = false;
