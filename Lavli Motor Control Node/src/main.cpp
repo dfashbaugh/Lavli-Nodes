@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <driver/twai.h>
-// Removed SoftwareSerial as ESP32 uses HardwareSerial
 
 // Device CAN address - This should match CONTROLLER_MOTOR_ADDRESS in master (0x311)
 #define MY_CAN_ADDRESS 0x311
@@ -9,10 +8,10 @@
 #define CAN_TX_PIN GPIO_NUM_4
 #define CAN_RX_PIN GPIO_NUM_5
 
-// Motor controller serial pins
-#define MOTOR_TX_PIN 18  // TX to motor controller (ESP32 TX -> Motor RX)
-#define MOTOR_PULSE_PIN 8
-#define MOTOR_RX_PIN 17  // RX from motor controller (ESP32 RX -> Motor TX)
+// Direct UART pins to inverter (replacing the intermediate motor controller)
+#define INVERTER_TX_PIN 18  // TX to inverter (ESP32 TX -> Inverter COM)
+#define INVERTER_RX_PIN 17  // RX from inverter (ESP32 RX -> Inverter DATA)
+#define MOTOR_PULSE_PIN 8   // Keep for debugging if needed
 
 // Motor control command definitions (from master)
 #define MOTOR_SET_RPM_CMD     0x30
@@ -27,19 +26,34 @@
 #define MOTOR_STATUS_DATA     0x43
 #define ERROR_RESPONSE        0xFF
 
-// Use HardwareSerial for motor communication
-HardwareSerial motorSerial(1); // Use UART1
+// Inverter Command Definitions
+#define CMD_CW    0x14
+#define CMD_CCW   0x18
+#define CMD_UNB   0x27
+#define CMD_LOAD  0xB0
+#define CMD_ACCSPD 0xA0
+
+// Use HardwareSerial for inverter communication
+HardwareSerial inverterSerial(1); // Use UART1
 
 // Motor state variables
 uint16_t commandedRPM = 0;
 uint16_t currentRPM = 0;
+uint16_t targetRPM = 0;
 uint16_t actualRPM = 0;
-String currentDirection = "CCW";  // Default direction
+byte currentDirection = CMD_CCW;  // Default direction (CCW)
 byte faultCode = 0;
 bool motorRunning = false;
 
-// Serial communication
-String motorResponse = "";
+// Deceleration Profile
+const uint16_t DECEL_STEP_SIZE = 30;     // RPM to decrease per step
+const unsigned long DECEL_INTERVAL = 600; // Time between deceleration steps in milliseconds
+unsigned long lastDecelTime = 0;         // Last time deceleration was applied
+bool isDecelerating = false;             // Flag to indicate if we're currently decelerating
+
+// Communication Timing
+unsigned long lastSendTime = 0;
+const unsigned long sendInterval = 300;  // milliseconds
 unsigned long lastStatusRequest = 0;
 const unsigned long statusInterval = 1000; // Request status every second
 
@@ -47,6 +61,16 @@ const unsigned long statusInterval = 1000; // Request status every second
 twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
 twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+// Inverter Communication Buffers
+byte txBuffer[10];
+byte rxBuffer[10];
+
+// CRC Lookup Table for inverter communication
+const uint16_t aCrcTab[] = {
+  0x0000, 0x1081, 0x2102, 0x3183, 0x4204, 0x5285, 0x6306, 0x7387,
+  0x8408, 0x9489, 0xa50a, 0xb58b, 0xc60c, 0xd68d, 0xe70e, 0xf78f
+};
 
 // Function prototypes
 bool initializeCAN();
@@ -57,20 +81,24 @@ void setMotorRPM(uint16_t rpm);
 void setMotorDirection(bool clockwise);
 void stopMotor();
 void requestMotorStatus();
-void readMotorResponse();
-void parseMotorStatus(String response);
+
+// Inverter communication functions
+uint16_t calcCRC16(byte* buffer, uint16_t length);
+void sendInverterCommand(byte cmd, uint16_t rpm = 0, byte acc = 0);
+bool readInverterResponse();
+void handleDeceleration();
 
 void setup() {
   Serial.begin(115200);
-  Serial.printf("CAN Motor Controller - Address: 0x%03X\n", MY_CAN_ADDRESS);
+  Serial.printf("Integrated CAN Motor Controller - Address: 0x%03X\n", MY_CAN_ADDRESS);
 
   delay(2000);
 
-  // Initialize motor serial communication
+  // Initialize inverter serial communication (direct to inverter)
   pinMode(MOTOR_PULSE_PIN, OUTPUT);
   digitalWrite(MOTOR_PULSE_PIN, LOW); // Ensure pulse pin is low
-  motorSerial.begin(9600, SERIAL_8N1, MOTOR_RX_PIN, MOTOR_TX_PIN); // Initialize UART1 with pins
-  Serial.println("Motor SoftwareSerial initialized at 9600 baud");
+  inverterSerial.begin(2400, SERIAL_8N1, INVERTER_RX_PIN, INVERTER_TX_PIN); // 2400 baud for inverter
+  Serial.println("Inverter UART initialized at 2400 baud");
 
   // Initialize CAN
   if (initializeCAN()) {
@@ -80,38 +108,26 @@ void setup() {
     Serial.println("CAN initialization failed");
   }
 
-  // Send initial status request to motor
   delay(1000);
-  requestMotorStatus();
-}
-
-void sendRPMAsPulse()
-{
-  pinMode(MOTOR_PULSE_PIN, INPUT);
-  delay(commandedRPM/4);
-  pinMode(MOTOR_PULSE_PIN, OUTPUT);
-  digitalWrite(MOTOR_PULSE_PIN, LOW);
-  delay(commandedRPM/4);
 }
 
 void loop() {
-  // commandedRPM = 50;
-
   // Listen for CAN messages
   receiveCANMessages();
   
-  // Read responses from motor controller
-  readMotorResponse();
+  // Handle deceleration if active
+  handleDeceleration();
   
-  // Periodically request motor status
-  if (millis() - lastStatusRequest > statusInterval) {
-    requestMotorStatus();
-    lastStatusRequest = millis();
-    Serial.println("Requested motor status update");
+  // Send periodic commands to maintain inverter state
+  unsigned long now = millis();
+  if (now - lastSendTime > sendInterval) {
+    lastSendTime = now;
+    sendInverterCommand(currentDirection, currentRPM);
   }
-
-  // sendRPMAsPulse();
-
+  
+  // Read responses from inverter
+  readInverterResponse();
+  
   delay(10);
 }
 
@@ -201,7 +217,6 @@ void processReceivedMessage(twai_message_t* message) {
     case MOTOR_STATUS_CMD:
       Serial.println("Motor status requested");
       requestMotorStatus();
-      // Response will be sent when motor replies
       break;
       
     default:
@@ -243,97 +258,155 @@ void setMotorRPM(uint16_t rpm) {
   // Limit RPM to safe range
   if (rpm > 1500) rpm = 1500;
   
-  currentRPM = rpm;
+  commandedRPM = rpm;
   motorRunning = (rpm > 0);
   
-  // Send SETRPM command to motor controller via SoftwareSerial
-  motorSerial.print("SETRPM:");
-  motorSerial.println(rpm);
-  
-  Serial.printf("Sent to motor: SETRPM:%d\n", rpm);
+  // Check if we need to decelerate
+  if (rpm < currentRPM) {
+    // Set up deceleration
+    targetRPM = rpm;
+    isDecelerating = true;
+    lastDecelTime = millis(); // Start deceleration immediately
+    
+    Serial.printf("Starting deceleration from %d to %d\n", currentRPM, targetRPM);
+  } else {
+    // For acceleration or same speed, set immediately
+    currentRPM = rpm;
+    targetRPM = rpm;
+    isDecelerating = false;
+    
+    Serial.printf("Setting RPM directly to: %d\n", currentRPM);
+    
+    // Send command with current direction and new RPM
+    sendInverterCommand(currentDirection, currentRPM);
+  }
 }
 
 void setMotorDirection(bool clockwise) {
-  currentDirection = clockwise ? "CW" : "CCW";
+  currentDirection = clockwise ? CMD_CW : CMD_CCW;
   
-  // Send direction command to motor controller via SoftwareSerial
-  if (clockwise) {
-    motorSerial.println("SETCW");
-    Serial.println("Sent to motor: SETCW");
-  } else {
-    motorSerial.println("SETCCW");
-    Serial.println("Sent to motor: SETCCW");
-  }
+  Serial.printf("Setting direction to: %s\n", clockwise ? "CW" : "CCW");
+  
+  // Send direction command with current RPM to inverter
+  sendInverterCommand(currentDirection, currentRPM);
 }
 
 void stopMotor() {
+  commandedRPM = 0;
   currentRPM = 0;
+  targetRPM = 0;
   motorRunning = false;
+  isDecelerating = false;
   
-  // Send stop command (set RPM to 0) via SoftwareSerial
-  motorSerial.println("SETRPM:0");
-  Serial.println("Sent to motor: SETRPM:0");
+  Serial.println("Stopping motor (RPM = 0)");
+  
+  // Send stop command (set RPM to 0) to inverter
+  sendInverterCommand(currentDirection, 0);
 }
 
 void requestMotorStatus() {
-  // Request status from motor controller via SoftwareSerial
-  motorSerial.println("STATUS");
+  // Send current status data via CAN immediately
+  // Status format: actualRPM in data1, direction and currentRPM in data2
+  uint16_t statusData1 = actualRPM;
+  uint16_t statusData2 = (currentDirection == CMD_CW ? 0x8000 : 0x0000) | (currentRPM & 0x7FFF);
+  sendResponse(MOTOR_STATUS_DATA, statusData1, statusData2, faultCode);
+  
+  Serial.printf("Status sent - Actual RPM: %d, Set RPM: %d, Dir: %s, Fault: 0x%02X\n",
+                actualRPM, currentRPM, 
+                (currentDirection == CMD_CW) ? "CW" : "CCW", faultCode);
 }
 
-void readMotorResponse() {
-  while (motorSerial.available()) {
-    // Serial.println("Reading from motor serial...");
-
-    char c = motorSerial.read();
+void handleDeceleration() {
+  if (!isDecelerating) return;
+  
+  unsigned long now = millis();
+  if (now - lastDecelTime > DECEL_INTERVAL) {
+    lastDecelTime = now;
     
-    if (c == '\n' || c == '\r') {
-      if (motorResponse.length() > 0) {
-        Serial.print("Motor response: ");
-        Serial.println(motorResponse);
-        
-        // Parse the response
-        if (motorResponse.startsWith("STATUS:")) {
-          parseMotorStatus(motorResponse);
-        } else if (motorResponse == "OK") {
-          Serial.println("Command acknowledged by motor controller");
-        } else if (motorResponse == "ERROR") {
-          Serial.println("Motor controller reported command error");
-        }
-        
-        motorResponse = "";
-      }
+    // Decrease RPM by step size
+    if (currentRPM > targetRPM + DECEL_STEP_SIZE) {
+      currentRPM -= DECEL_STEP_SIZE;
+      Serial.printf("Decelerating to: %d\n", currentRPM);
     } else {
-      motorResponse += c;
+      // We've reached or are very close to target
+      currentRPM = targetRPM;
+      isDecelerating = false;
+      Serial.printf("Reached target RPM: %d\n", currentRPM);
     }
+    
+    // Send updated RPM command to inverter
+    sendInverterCommand(currentDirection, currentRPM);
   }
 }
 
-void parseMotorStatus(String response) {
-  // Expected format: STATUS:DIRECTION,RPM,ACTUAL_RPM,FAULT
-  // Example: STATUS:CW,1200,1198,0
-  
-  int colonPos = response.indexOf(':');
-  if (colonPos == -1) return;
-  
-  String data = response.substring(colonPos + 1);
-  
-  // Parse comma-separated values
-  int comma1 = data.indexOf(',');
-  int comma2 = data.indexOf(',', comma1 + 1);
-  int comma3 = data.indexOf(',', comma2 + 1);
-  
-  if (comma1 != -1 && comma2 != -1 && comma3 != -1) {
-    currentDirection = data.substring(0, comma1);
-    currentRPM = data.substring(comma1 + 1, comma2).toInt();
-    actualRPM = data.substring(comma2 + 1, comma3).toInt();
-    faultCode = data.substring(comma3 + 1).toInt();
-    
-    Serial.printf("Motor Status - Dir: %s, Set RPM: %d, Actual RPM: %d, Fault: 0x%02X\n",
-                  currentDirection.c_str(), currentRPM, actualRPM, faultCode);
-    
-    // Send status data via CAN
-    uint16_t statusData1 = actualRPM;
-    uint16_t statusData2 = (currentDirection == "CW" ? 0x8000 : 0x0000) | (currentRPM & 0x7FFF);
-    sendResponse(MOTOR_STATUS_DATA, statusData1, statusData2, faultCode);
+// =====================
+// Inverter Communication Functions
+// =====================
+
+uint16_t calcCRC16(byte* buffer, uint16_t length) {
+  uint16_t wCrc = 0xffff;
+  for (uint16_t i = 0; i < length; i++) {
+    wCrc = (wCrc >> 4) ^ aCrcTab[(wCrc & 0x0f) ^ (buffer[i] & 0x0f)];
+    wCrc = (wCrc >> 4) ^ aCrcTab[(wCrc & 0x0f) ^ (buffer[i] >> 4)];
   }
+  return ~wCrc;
+}
+
+void sendInverterCommand(byte cmd, uint16_t rpm, byte acc) {
+  memset(txBuffer, 0, sizeof(txBuffer));
+
+  txBuffer[0] = cmd;
+
+  // For CW/CCW: set speed in ωH/ωL
+  // For ACCSPD: rpm = acceleration
+  if (cmd == CMD_CW || cmd == CMD_CCW) {
+    txBuffer[1] = (rpm >> 8) & 0xFF;  // ωH
+    txBuffer[2] = rpm & 0xFF;         // ωL
+  } else if (cmd == CMD_ACCSPD) {
+    txBuffer[1] = acc;  // acceleration in RPM/s
+  }
+
+  // P3–P6 remain 0
+  uint16_t crc = calcCRC16(txBuffer, 8);
+  txBuffer[8] = (crc >> 8) & 0xFF;
+  txBuffer[9] = crc & 0xFF;
+
+  inverterSerial.write(txBuffer, 10);
+
+  Serial.printf(">> Sent CMD 0x%02X RPM: %d\n", cmd, rpm);
+}
+
+bool readInverterResponse() {
+  if (inverterSerial.available() >= 10) {
+    inverterSerial.readBytes(rxBuffer, 10);
+    
+    Serial.print("<< Inverter Response: ");
+    for (int i = 0; i < 10; i++) {
+      Serial.printf("0x%02X ", rxBuffer[i]);
+    }
+    Serial.println();
+
+    uint16_t crcCalc = calcCRC16(rxBuffer, 8);
+    uint16_t crcRecv = (rxBuffer[8] << 8) | rxBuffer[9];
+
+    if (crcCalc != crcRecv) {
+      Serial.println("!! CRC mismatch");
+      return false;
+    }
+
+    // Extract actual RPM and fault code from response
+    actualRPM = (rxBuffer[2] << 8) | rxBuffer[3];
+    faultCode = rxBuffer[5];
+
+    if (rxBuffer[0] == 0x06) {
+      Serial.println("ACK received from inverter");
+    } else if (rxBuffer[0] == 0x15) {
+      Serial.println("NCK received from inverter");
+    }
+
+    Serial.printf("Actual RPM: %d, Fault Code: 0x%02X\n", actualRPM, faultCode);
+    
+    return true;
+  }
+  return false;
 }
