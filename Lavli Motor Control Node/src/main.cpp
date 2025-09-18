@@ -110,7 +110,7 @@ void loop() {
     Serial.println("Requested motor status update");
   }
 
-  sendRPMAsPulse();
+  // sendRPMAsPulse();
 
   delay(10);
 }
