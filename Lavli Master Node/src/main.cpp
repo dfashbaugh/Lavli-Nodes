@@ -1,9 +1,76 @@
 #include <Arduino.h>
 #include <driver/twai.h>
+#include <Adafruit_NeoPixel.h>
+#include <ESP32Encoder.h>
+#include <WiFi.h>
+#include <WiFiManager.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+
+// MQTT Configuration
+#define USE_PROVISIONING false
+#define MQTT_BROKER "b-f3e16066-c8b5-48a8-81b0-bc3347afef80-1.mq.us-east-1.amazonaws.com"
+#define MQTT_PORT 8883
+#define MQTT_USERNAME "admin"
+#define MQTT_PASSWORD "lavlidevbroker!321"
+#define AP_NAME "Lavli-CAN-Master"
+
+#define WIFI_SSID "PKFLetsKickIt"
+#define WIFI_PASSWORD "ClarkIsACat"
+
+// MQTT Topics
+#define TOPIC_DRY "/lavli/dry"
+#define TOPIC_WASH "/lavli/wash"
+#define TOPIC_STOP "/lavli/stop"
+
+// Interface Setup
+#define LED_PIN GPIO_NUM_6
+#define LED_COUNT 24
+#define ENCODER_A GPIO_NUM_7
+#define ENCODER_B GPIO_NUM_8
+#define ENCODER_SWITCH GPIO_NUM_9
+#define DEBOUNCE_DELAY 50
+
+// Program Timer Configuration
+#define PROGRAM_DURATION_MS (10 * 60 * 1000)  // 10 minutes in milliseconds
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+ESP32Encoder encoder;
+
+int lastEncoderValue = 0;
+int brightness = 50;
+bool lastSwitchState = HIGH;
+unsigned long lastDebounceTime = 0;
+
+// Program timing variables
+unsigned long programStartTime = 0;
+unsigned long programDurationMs = PROGRAM_DURATION_MS;
+bool fadeInActive = false;
+unsigned long fadeStartTime = 0;
+#define FADE_DURATION_MS 2000
+
+// WiFi and MQTT clients
+WiFiClientSecure espClient;
+PubSubClient mqttClient(espClient);
+WiFiManager wifiManager;
+
+// MQTT Command Variables
+struct MQTTCommand {
+  bool received;
+  int value;
+  unsigned long timestamp;
+};
+
+MQTTCommand dryCommand = {false, 0, 0};
+MQTTCommand washCommand = {false, 0, 0};
+MQTTCommand stopCommand = {false, 0, 0};
+
+// CAN IDs of Controllers
+#define CONTROLLER_120V_ADDRESS 0x543
+#define CONTROLLER_MOTOR_ADDRESS 0x311
 
 // CAN pins
 #define CAN_TX_PIN GPIO_NUM_4
-#define CAN_RX_PIN GPIO_NUM_5
+#define CAN_RX_PIN GPIO_NUM_5  
 
 // Command definitions for output control
 #define ACTIVATE_CMD   0x01
@@ -15,6 +82,12 @@
 #define READ_ALL_ANALOG_CMD 0x05
 #define READ_ALL_DIGITAL_CMD 0x06
 
+// Motor command definitions (matching motor control node)
+#define MOTOR_SET_RPM_CMD     0x30
+#define MOTOR_SET_DIRECTION_CMD 0x31
+#define MOTOR_STOP_CMD        0x32
+#define MOTOR_STATUS_CMD      0x33
+
 // Response command definitions
 #define ACK_ACTIVATE      0x10
 #define ACK_DEACTIVATE    0x11
@@ -22,6 +95,10 @@
 #define DIGITAL_DATA      0x21
 #define ALL_ANALOG_DATA   0x22
 #define ALL_DIGITAL_DATA  0x23
+#define ACK_MOTOR_RPM         0x40
+#define ACK_MOTOR_DIRECTION   0x41
+#define ACK_MOTOR_STOP        0x42
+#define MOTOR_STATUS_DATA     0x43
 #define ERROR_RESPONSE    0xFF
 
 // Sensor data structure for storing received values
@@ -44,6 +121,13 @@ twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // Function prototypes
+void setupWiFi();
+void configModeCallback(WiFiManager *myWiFiManager);
+void saveConfigCallback();
+void connectToMQTT();
+void onMqttMessage(char* topic, byte* payload, unsigned int length);
+void processMQTTCommands();
+
 bool initializeCAN();
 void initializeSensorStorage();
 bool sendOutputCommand(uint16_t device_address, uint8_t command, uint8_t port);
@@ -51,6 +135,10 @@ bool requestAnalogReading(uint16_t device_address, uint8_t pin);
 bool requestDigitalReading(uint16_t device_address, uint8_t pin);
 bool requestAllAnalogReadings(uint16_t device_address);
 bool requestAllDigitalReadings(uint16_t device_address);
+bool sendMotorRPM(uint16_t device_address, uint16_t rpm);
+bool sendMotorDirection(uint16_t device_address, bool clockwise);
+bool sendMotorStop(uint16_t device_address);
+bool requestMotorStatus(uint16_t device_address);
 void receiveCANMessages();
 void processReceivedMessage(twai_message_t* message);
 void storeSensorReading(uint16_t device_address, uint8_t pin, uint16_t value, bool is_analog);
@@ -59,30 +147,246 @@ SensorReading getDigitalReading(uint16_t device_address, uint8_t pin);
 void printSensorData(uint16_t device_address);
 uint8_t getDeviceIndex(uint16_t device_address);
 
+enum MachineState {
+  STATE_OFF,
+  STATE_IDLE,
+  STATE_SELECT_DRY,
+  STATE_SELECT_WASH,
+  STATE_DRYING,
+  STATE_WASHING,
+};
+
+
+MachineState currentState = STATE_IDLE;
+
+void startWash()
+{
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50);
+    programStartTime = millis();
+    currentState = STATE_WASHING;
+}
+
+void startDry()
+{
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, ACTIVATE_CMD, 0);
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 50);
+    programStartTime = millis();
+    currentState = STATE_DRYING;
+}
+
+void stopAll()
+{
+    sendMotorRPM(CONTROLLER_MOTOR_ADDRESS, 0);
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 0);
+    sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 1);
+    programStartTime = 0;
+    currentState = STATE_IDLE;
+}
+
+bool isProgramTimeElapsed() {
+    if (programStartTime == 0) return false;
+    return (millis() - programStartTime) >= programDurationMs;
+}
+
+void checkProgramTimer() {
+    if ((currentState == STATE_WASHING || currentState == STATE_DRYING) && isProgramTimeElapsed()) {
+        Serial.println("[TIMER] Program duration completed, stopping all operations");
+        stopAll();
+    }
+}
+
+
+void setupInterface()
+{
+  strip.begin();
+  strip.show();
+  strip.setBrightness(brightness);
+  
+  ESP32Encoder::useInternalWeakPullResistors = puType::UP;
+  encoder.attachHalfQuad(ENCODER_A, ENCODER_B);
+  encoder.clearCount();
+
+  pinMode(ENCODER_SWITCH, INPUT_PULLUP);
+
+  for(int i = 0; i < LED_COUNT; i++){
+    strip.setPixelColor(i, strip.Color(0, 0, 255));
+  }
+  strip.show();
+}
+
+void handleSwitchPress() {
+  bool switchReading = digitalRead(ENCODER_SWITCH);
+  
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+    if (switchReading != lastSwitchState) {
+      if (switchReading == LOW) {
+        // TODO: Do Switch functions in here
+        Serial.println("[SWITCH] Button pressed");
+
+        if(currentState == STATE_OFF) {
+          currentState = STATE_IDLE;
+          fadeInActive = true;
+          fadeStartTime = millis();
+        }
+        else if(currentState == STATE_SELECT_WASH){
+          startWash();
+        }
+        else if(currentState == STATE_SELECT_DRY){
+          startDry();
+        }
+        else if(currentState == STATE_WASHING || currentState == STATE_DRYING){
+          stopAll();
+        }
+
+      }
+      lastSwitchState = switchReading;
+    }
+    lastDebounceTime = millis();
+  }
+}
+
+void drawLEDs() {
+  // Handle fade-in animation
+  if (fadeInActive) {
+    unsigned long fadeElapsed = millis() - fadeStartTime;
+    if (fadeElapsed >= FADE_DURATION_MS) {
+      fadeInActive = false;
+    } else {
+      float fadeProgress = (float)fadeElapsed / FADE_DURATION_MS;
+      uint8_t alpha = (uint8_t)(255 * fadeProgress);
+      
+      for(int i = 0; i < LED_COUNT; i++){
+        strip.setPixelColor(i, strip.Color(alpha, alpha, alpha));
+      }
+      strip.show();
+      return;
+    }
+  }
+  
+  if(currentState == STATE_OFF) {
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(0, 0, 0));
+    }
+  }
+  else if(currentState == STATE_IDLE){
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(255, 255, 255));
+    }
+  }
+  else if(currentState == STATE_SELECT_WASH){
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(0, 255, 0));
+    }
+  }
+  else if(currentState == STATE_SELECT_DRY){
+    for(int i = 0; i < LED_COUNT; i++){
+      strip.setPixelColor(i, strip.Color(255, 0, 0));
+    }
+  }
+  else if(currentState == STATE_DRYING || currentState == STATE_WASHING){
+    // Calculate remaining time and LEDs to show
+    if (programStartTime > 0) {
+      unsigned long elapsed = millis() - programStartTime;
+      unsigned long remaining = (elapsed >= programDurationMs) ? 0 : (programDurationMs - elapsed);
+      float remainingPercent = (float)remaining / programDurationMs;
+      int ledsToShow = (int)(LED_COUNT * remainingPercent);
+      
+      // Set color based on program type
+      uint32_t color;
+      if (currentState == STATE_DRYING) {
+        color = strip.Color(255, 100, 0); // Orange for drying
+      } else {
+        color = strip.Color(0, 100, 255); // Blue for washing
+      }
+      
+      // Light up LEDs for remaining time
+      for(int i = 0; i < LED_COUNT; i++){
+        if (i < ledsToShow) {
+          strip.setPixelColor(i, color);
+        } else {
+          strip.setPixelColor(i, strip.Color(0, 0, 0));
+        }
+      }
+    }
+  }
+
+  strip.show();
+}
+
+void readEncoder(){
+  int newValue = encoder.getCount();
+  newValue = newValue /4;
+  if (newValue != lastEncoderValue) {
+    
+    if(currentState == STATE_IDLE || currentState == STATE_SELECT_DRY){
+      currentState = STATE_SELECT_WASH;
+    }
+    else if(currentState == STATE_SELECT_WASH){
+      currentState = STATE_SELECT_DRY;
+    }
+
+    lastEncoderValue = newValue;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-  Serial.println("CAN Master Node with Sensor Support");
+  Serial.println("\n=== Lavli CAN Master with MQTT Starting ===");
+  Serial.println("[SETUP] Serial initialized at 115200 baud");
   
   delay(2000);
+
+  setupInterface();
+  Serial.println("[SETUP] Interface initialized");
   
   // Initialize sensor data storage
   initializeSensorStorage();
+  Serial.println("[SETUP] Sensor storage initialized");
   
   // Initialize CAN
   if (initializeCAN()) {
-    Serial.println("CAN initialized successfully");
-    Serial.println("Commands:");
-    Serial.println("  activate <addr> <port>    - Activate output port");
-    Serial.println("  deactivate <addr> <port>  - Deactivate output port");
-    Serial.println("  analog <addr> <pin>       - Read analog pin");
-    Serial.println("  digital <addr> <pin>      - Read digital pin");
-    Serial.println("  all_analog <addr>         - Read all analog pins");
-    Serial.println("  all_digital <addr>        - Read all digital pins");
-    Serial.println("  status <addr>             - Show sensor data for device");
-    Serial.println();
+    Serial.println("[SETUP] CAN initialized successfully");
   } else {
-    Serial.println("CAN initialization failed");
+    Serial.println("[SETUP] CAN initialization failed");
   }
+  
+  Serial.println("[SETUP] Starting WiFi setup...");
+  setupWiFi();
+  Serial.println("[SETUP] WiFi setup complete");
+  
+  Serial.println("[SETUP] Configuring TLS client (insecure mode)");
+  espClient.setInsecure();
+  
+  Serial.print("[SETUP] Setting MQTT server: ");
+  Serial.print(MQTT_BROKER);
+  Serial.print(":");
+  Serial.println(MQTT_PORT);
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  
+  Serial.println("[SETUP] Setting MQTT callback function");
+  mqttClient.setCallback(onMqttMessage);
+  
+  Serial.println("[SETUP] Attempting initial MQTT connection...");
+  connectToMQTT();
+  
+  Serial.println("[SETUP] Setup complete!");
+  Serial.println("Commands:");
+  Serial.println("  activate <addr> <port>    - Activate output port");
+  Serial.println("  deactivate <addr> <port>  - Deactivate output port");
+  Serial.println("  analog <addr> <pin>       - Read analog pin");
+  Serial.println("  digital <addr> <pin>      - Read digital pin");
+  Serial.println("  all_analog <addr>         - Read all analog pins");
+  Serial.println("  all_digital <addr>        - Read all digital pins");
+  Serial.println("  status <addr>             - Show sensor data for device");
+  Serial.println("  motor_rpm <addr> <rpm>    - Set motor RPM (0-1500)");
+  Serial.println("  motor_direction <addr> <0|1> - Set motor direction (0=CCW, 1=CW)");
+  Serial.println("  motor_stop <addr>         - Stop motor");
+  Serial.println("  motor_status <addr>       - Request motor status");
+  Serial.println("MQTT Topics subscribed:");
+  Serial.println("  " + String(TOPIC_DRY) + " - Dry command");
+  Serial.println("  " + String(TOPIC_WASH) + " - Wash command");
+  Serial.println("  " + String(TOPIC_STOP) + " - Stop command");
+  Serial.println();
 }
 
 void doSerialControl()
@@ -147,6 +451,32 @@ void doSerialControl()
       else if (cmd == "status") {
         printSensorData(device_addr);
       }
+      else if (cmd == "motor_rpm") {
+        if (param_str.length() > 0) {
+          Serial.printf("Setting motor RPM to %d on device 0x%03X\n", param, device_addr);
+          sendMotorRPM(device_addr, param);
+        } else {
+          Serial.println("Usage: motor_rpm <addr> <rpm>");
+        }
+      }
+      else if (cmd == "motor_direction") {
+        if (param_str.length() > 0) {
+          bool clockwise = (param != 0);
+          Serial.printf("Setting motor direction to %s on device 0x%03X\n", 
+                        clockwise ? "CW" : "CCW", device_addr);
+          sendMotorDirection(device_addr, clockwise);
+        } else {
+          Serial.println("Usage: motor_direction <addr> <0=CCW|1=CW>");
+        }
+      }
+      else if (cmd == "motor_stop") {
+        Serial.printf("Stopping motor on device 0x%03X\n", device_addr);
+        sendMotorStop(device_addr);
+      }
+      else if (cmd == "motor_status") {
+        Serial.printf("Requesting motor status from device 0x%03X\n", device_addr);
+        requestMotorStatus(device_addr);
+      }
       else {
         Serial.println("Unknown command");
       }
@@ -155,12 +485,236 @@ void doSerialControl()
 }
 
 void loop() {
+  // Handle MQTT connection
+  if (!mqttClient.connected()) {
+    Serial.println("[LOOP] MQTT disconnected, attempting reconnection...");
+    connectToMQTT();
+  }
+  mqttClient.loop();
+  
+  // Process MQTT commands
+  processMQTTCommands();
+
   // Handle serial commands
   doSerialControl();
 
   // Process incoming CAN messages
   receiveCANMessages();
+
+  // Check program timer
+  checkProgramTimer();
+
+  handleSwitchPress();
+  readEncoder();
+  drawLEDs();
   delay(10);
+}
+
+void setupWiFi() {
+  Serial.println("[WIFI] Setting up WiFi...");
+  
+  if (USE_PROVISIONING) {
+    Serial.println("[WIFI] Using WiFiManager provisioning mode");
+    wifiManager.setAPCallback(configModeCallback);
+    wifiManager.setSaveConfigCallback(saveConfigCallback);
+    
+    Serial.println("[WIFI] Starting WiFiManager autoConnect...");
+    if (!wifiManager.autoConnect(AP_NAME)) {
+      Serial.println("[WIFI] ERROR: Failed to connect and hit timeout");
+      Serial.println("[WIFI] Restarting ESP32...");
+      ESP.restart();
+    }
+  } else {
+    Serial.println("[WIFI] Using hardcoded credentials mode");
+    Serial.print("[WIFI] SSID: ");
+    Serial.println(WIFI_SSID);
+    Serial.println("[WIFI] Starting WiFi connection...");
+    
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("[WIFI] Connecting to ");
+    Serial.print(WIFI_SSID);
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+      if (attempts > 60) {
+        Serial.println("");
+        Serial.println("[WIFI] ERROR: Connection timeout after 30 seconds");
+        Serial.println("[WIFI] Restarting ESP32...");
+        ESP.restart();
+      }
+    }
+    Serial.println("");
+  }
+  
+  Serial.println("[WIFI] WiFi connected successfully!");
+  Serial.print("[WIFI] IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("[WIFI] MAC address: ");
+  Serial.println(WiFi.macAddress());
+  Serial.print("[WIFI] Signal strength (RSSI): ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
+}
+
+void configModeCallback(WiFiManager *myWiFiManager) {
+  Serial.println("[WIFI] Entered config mode");
+  Serial.println("[WIFI] AP Name: " + String(AP_NAME));
+  Serial.println("[WIFI] IP: " + WiFi.softAPIP().toString());
+}
+
+void saveConfigCallback() {
+  Serial.println("[WIFI] WiFi configuration saved");
+}
+
+void connectToMQTT() {
+  int attempts = 0;
+  while (!mqttClient.connected()) {
+    attempts++;
+    Serial.print("[MQTT] Attempt #");
+    Serial.print(attempts);
+    Serial.print(" - Connecting to ");
+    Serial.print(MQTT_BROKER);
+    Serial.print(":");
+    Serial.println(MQTT_PORT);
+    
+    String clientId = "LavliCANMaster-" + String(random(0xffff), HEX);
+    Serial.print("[MQTT] Client ID: ");
+    Serial.println(clientId);
+    Serial.print("[MQTT] Username: ");
+    Serial.println(MQTT_USERNAME);
+    Serial.println("[MQTT] Establishing TLS connection...");
+    
+    if (mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
+      Serial.println("[MQTT] ✓ Connected successfully!");
+      
+      // Subscribe to all command topics
+      Serial.print("[MQTT] Subscribing to topics...");
+      bool allSubscribed = true;
+      
+      if (mqttClient.subscribe(TOPIC_DRY)) {
+        Serial.print(" " + String(TOPIC_DRY) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_DRY) + " ✗");
+        allSubscribed = false;
+      }
+      
+      if (mqttClient.subscribe(TOPIC_WASH)) {
+        Serial.print(" " + String(TOPIC_WASH) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_WASH) + " ✗");
+        allSubscribed = false;
+      }
+      
+      if (mqttClient.subscribe(TOPIC_STOP)) {
+        Serial.print(" " + String(TOPIC_STOP) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_STOP) + " ✗");
+        allSubscribed = false;
+      }
+      
+      Serial.println();
+      
+      if (allSubscribed) {
+        Serial.println("[MQTT] ✓ Successfully subscribed to all topics!");
+        Serial.println("[MQTT] Ready to receive commands!");
+      } else {
+        Serial.println("[MQTT] ✗ Failed to subscribe to some topics");
+      }
+    } else {
+      Serial.print("[MQTT] ✗ Connection failed, error code: ");
+      Serial.print(mqttClient.state());
+      Serial.println(" (see PubSubClient.h for error codes)");
+      Serial.println("[MQTT] Retrying in 5 seconds...");
+      delay(5000);
+    }
+  }
+}
+
+void onMqttMessage(char* topic, byte* payload, unsigned int length) {
+  Serial.println("\n[MQTT] ===== MESSAGE RECEIVED =====");
+  Serial.print("[MQTT] Topic: ");
+  Serial.println(topic);
+  Serial.print("[MQTT] Length: ");
+  Serial.print(length);
+  Serial.println(" bytes");
+  Serial.print("[MQTT] Data: ");
+  
+  // Convert payload to string
+  String message = "";
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+  
+  // Parse the numeric value from the message
+  int value = message.toInt();
+  Serial.print("[MQTT] Parsed value: ");
+  Serial.println(value);
+  
+  // Store the command based on topic
+  if (strcmp(topic, TOPIC_DRY) == 0) {
+    dryCommand.received = true;
+    dryCommand.value = value;
+    dryCommand.timestamp = millis();
+    Serial.println("[MQTT] Dry command received");
+  }
+  else if (strcmp(topic, TOPIC_WASH) == 0) {
+    washCommand.received = true;
+    washCommand.value = value;
+    washCommand.timestamp = millis();
+    Serial.println("[MQTT] Wash command received");
+  }
+  else if (strcmp(topic, TOPIC_STOP) == 0) {
+    stopCommand.received = true;
+    stopCommand.value = value;
+    stopCommand.timestamp = millis();
+    Serial.println("[MQTT] Stop command received");
+  }
+  
+  Serial.println("[MQTT] ========================\n");
+}
+
+
+
+void processMQTTCommands() {
+  // Process dry command
+  if (dryCommand.received) {
+    Serial.println("[COMMAND] Processing DRY command");
+    Serial.printf("[COMMAND] Dry value: %d\n", dryCommand.value);
+    Serial.printf("[COMMAND] Starting dry cycle for %lu minutes\n", programDurationMs / 60000);
+    
+    startDry();
+    
+    // Reset the command flag
+    dryCommand.received = false;
+  }
+  
+  // Process wash command
+  if (washCommand.received) {
+    Serial.println("[COMMAND] Processing WASH command");
+    Serial.printf("[COMMAND] Wash value: %d\n", washCommand.value);
+    Serial.printf("[COMMAND] Starting wash cycle for %lu minutes\n", programDurationMs / 60000);
+    
+    startWash();
+    
+    // Reset the command flag
+    washCommand.received = false;
+  }
+  
+  // Process stop command
+  if (stopCommand.received) {
+    Serial.println("[COMMAND] Processing STOP command");
+    Serial.printf("[COMMAND] Stop value: %d\n", stopCommand.value);
+    
+    stopAll();
+    
+    // Reset the command flag
+    stopCommand.received = false;
+  }
 }
 
 bool initializeCAN() {
@@ -279,6 +833,14 @@ void processReceivedMessage(twai_message_t* message) {
       if (message->data_length_code >= 3) {
         Serial.printf("Output command acknowledged: Port %d, Status 0x%02X\n", 
                       message->data[1], message->data[2]);
+      }
+      break;
+      
+    case ACK_MOTOR_RPM:
+      if (message->data_length_code >= 4) {
+        uint16_t confirmed_speed = (message->data[1] << 8) | message->data[2];
+        Serial.printf("Motor speed command acknowledged: Speed %d, Status 0x%02X\n", 
+                      confirmed_speed, message->data[3]);
       }
       break;
       
@@ -410,4 +972,55 @@ void printSensorData(uint16_t device_address) {
 uint8_t getDeviceIndex(uint16_t device_address) {
   // Simple mapping - you might want a more sophisticated approach
   return device_address % MAX_DEVICES;
+}
+
+bool sendMotorRPM(uint16_t device_address, uint16_t rpm) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 3;
+  message.data[0] = MOTOR_SET_RPM_CMD;
+  message.data[1] = (rpm >> 8) & 0xFF;  // High byte
+  message.data[2] = rpm & 0xFF;         // Low byte
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool sendMotorDirection(uint16_t device_address, bool clockwise) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 2;
+  message.data[0] = MOTOR_SET_DIRECTION_CMD;
+  message.data[1] = clockwise ? 1 : 0;
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool sendMotorStop(uint16_t device_address) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 1;
+  message.data[0] = MOTOR_STOP_CMD;
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool requestMotorStatus(uint16_t device_address) {
+  twai_message_t message;
+  
+  message.identifier = device_address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = 1;
+  message.data[0] = MOTOR_STATUS_CMD;
+  
+  return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
 }
