@@ -101,7 +101,8 @@ void setup() {
 
   // Initialize inverter serial communication (direct to inverter)
   // inverterSerial.begin(2400, SERIAL_8N1, INVERTER_RX_PIN, INVERTER_TX_PIN); // 2400 baud for inverter
-  INVERTER_SERIAL.begin(BAUD_RATE); // Using default UART1 pins
+  // INVERTER_SERIAL.begin(BAUD_RATE); // Using default UART1 pins
+  INVERTER_SERIAL.begin(BAUD_RATE, SERIAL_8N1, 44, 43);
   DEBUG_SERIAL.println("Inverter UART initialized at 2400 baud");
 
 #ifdef USE_CAN
