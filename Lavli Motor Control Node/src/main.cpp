@@ -4,9 +4,15 @@
 // Device CAN address - This should match CONTROLLER_MOTOR_ADDRESS in master (0x311)
 #define MY_CAN_ADDRESS 0x311
 
+#define USE_CAN
+
 // CAN pins - using valid ESP32-S3 GPIO pins (matching master node)
 #define CAN_TX_PIN GPIO_NUM_4
 #define CAN_RX_PIN GPIO_NUM_5
+
+#define INVERTER_SERIAL Serial1  // Leonardo: Serial1 = TX1 (pin 1), RX1 (pin 0)
+#define DEBUG_SERIAL Serial      // For debugging over USB
+#define BAUD_RATE 2400
 
 // Direct UART pins to inverter (replacing the intermediate motor controller)
 // #define INVERTER_TX_PIN 18  // TX to inverter (ESP32 TX -> Inverter COM)
@@ -88,31 +94,35 @@ bool readInverterResponse();
 void handleDeceleration();
 
 void setup() {
-  Serial.begin(115200);
-  Serial.printf("Integrated CAN Motor Controller - Address: 0x%03X\n", MY_CAN_ADDRESS);
+  DEBUG_SERIAL.begin(115200);
+  DEBUG_SERIAL.printf("Integrated CAN Motor Controller - Address: 0x%03X\n", MY_CAN_ADDRESS);
 
   delay(2000);
 
   // Initialize inverter serial communication (direct to inverter)
   // inverterSerial.begin(2400, SERIAL_8N1, INVERTER_RX_PIN, INVERTER_TX_PIN); // 2400 baud for inverter
-  Serial1.begin(2400); // Using default UART1 pins
-  Serial.println("Inverter UART initialized at 2400 baud");
+  INVERTER_SERIAL.begin(BAUD_RATE); // Using default UART1 pins
+  DEBUG_SERIAL.println("Inverter UART initialized at 2400 baud");
 
+#ifdef USE_CAN
   // Initialize CAN
   if (initializeCAN()) {
-    Serial.println("CAN initialized successfully");
-    Serial.println("Ready to receive motor commands...");
+    DEBUG_SERIAL.println("CAN initialized successfully");
+    DEBUG_SERIAL.println("Ready to receive motor commands...");
   } else {
-    Serial.println("CAN initialization failed");
+    DEBUG_SERIAL.println("CAN initialization failed");
   }
+#endif
 
   delay(1000);
 }
 
 void loop() {
+#ifdef USE_CAN
   // Listen for CAN messages
   receiveCANMessages();
-  
+#endif
+
   // Handle deceleration if active
   handleDeceleration();
   
@@ -132,17 +142,17 @@ void loop() {
 bool initializeCAN() {
   // Install TWAI driver
   if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK) {
-    Serial.println("Failed to install TWAI driver");
+    DEBUG_SERIAL.println("Failed to install TWAI driver");
     return false;
   }
   
   // Start TWAI driver
   if (twai_start() != ESP_OK) {
-    Serial.println("Failed to start TWAI driver");
+    DEBUG_SERIAL.println("Failed to start TWAI driver");
     return false;
   }
   
-  Serial.println("TWAI driver installed and started");
+  DEBUG_SERIAL.println("TWAI driver installed and started");
   return true;
 }
 
@@ -153,43 +163,43 @@ void receiveCANMessages() {
   if (twai_receive(&message, 0) == ESP_OK) {
     // Only process messages addressed to this device
     if (message.identifier == MY_CAN_ADDRESS) {
-      Serial.printf("Received message for my address (0x%03X): ", message.identifier);
+      DEBUG_SERIAL.printf("Received message for my address (0x%03X): ", message.identifier);
       
       for (int i = 0; i < message.data_length_code; i++) {
-        Serial.printf("0x%02X ", message.data[i]);
+        DEBUG_SERIAL.printf("0x%02X ", message.data[i]);
       }
-      Serial.println();
+      DEBUG_SERIAL.println();
       
       // Process the received message
       processReceivedMessage(&message);
     }
     // Optionally log messages for other devices (for debugging)
     else {
-      Serial.printf("Message for other device (0x%03X) - ignoring\n", message.identifier);
+      DEBUG_SERIAL.printf("Message for other device (0x%03X) - ignoring\n", message.identifier);
     }
   }
 }
 
 void processReceivedMessage(twai_message_t* message) {
   if (message->data_length_code < 1) {
-    Serial.println("ERROR: Message too short");
+    DEBUG_SERIAL.println("ERROR: Message too short");
     sendResponse(ERROR_RESPONSE, 0, 0, 0x01); // Error: Invalid message length
     return;
   }
   
   uint8_t command = message->data[0];
   
-  Serial.printf("Processing motor command 0x%02X\n", command);
+  DEBUG_SERIAL.printf("Processing motor command 0x%02X\n", command);
   
   switch (command) {
     case MOTOR_SET_RPM_CMD:
       if (message->data_length_code >= 3) {
         uint16_t rpm = (message->data[1] << 8) | message->data[2];
-        Serial.printf("Setting motor RPM to: %d\n", rpm);
+        DEBUG_SERIAL.printf("Setting motor RPM to: %d\n", rpm);
         setMotorRPM(rpm);
         sendResponse(ACK_MOTOR_RPM, rpm, 0, 0x00); // Success
       } else {
-        Serial.println("ERROR: RPM command too short");
+        DEBUG_SERIAL.println("ERROR: RPM command too short");
         sendResponse(ERROR_RESPONSE, 0, 0, 0x02); // Error: Invalid parameters
       }
       break;
@@ -197,28 +207,28 @@ void processReceivedMessage(twai_message_t* message) {
     case MOTOR_SET_DIRECTION_CMD:
       if (message->data_length_code >= 2) {
         bool clockwise = message->data[1] != 0;
-        Serial.printf("Setting motor direction to: %s\n", clockwise ? "CW" : "CCW");
+        DEBUG_SERIAL.printf("Setting motor direction to: %s\n", clockwise ? "CW" : "CCW");
         setMotorDirection(clockwise);
         sendResponse(ACK_MOTOR_DIRECTION, clockwise ? 1 : 0, 0, 0x00); // Success
       } else {
-        Serial.println("ERROR: Direction command too short");
+        DEBUG_SERIAL.println("ERROR: Direction command too short");
         sendResponse(ERROR_RESPONSE, 0, 0, 0x02); // Error: Invalid parameters
       }
       break;
       
     case MOTOR_STOP_CMD:
-      Serial.println("Stopping motor");
+      DEBUG_SERIAL.println("Stopping motor");
       stopMotor();
       sendResponse(ACK_MOTOR_STOP, 0, 0, 0x00); // Success
       break;
       
     case MOTOR_STATUS_CMD:
-      Serial.println("Motor status requested");
+      DEBUG_SERIAL.println("Motor status requested");
       requestMotorStatus();
       break;
       
     default:
-      Serial.printf("ERROR: Unknown motor command 0x%02X\n", command);
+      DEBUG_SERIAL.printf("ERROR: Unknown motor command 0x%02X\n", command);
       sendResponse(ERROR_RESPONSE, 0, 0, 0x03); // Error: Unknown command
       break;
   }
@@ -243,11 +253,11 @@ bool sendResponse(uint8_t command, uint16_t data1, uint16_t data2, uint8_t statu
   
   // Send response
   if (twai_transmit(&response, pdMS_TO_TICKS(1000)) == ESP_OK) {
-    Serial.printf("Response sent: Command=0x%02X, Data1=%d, Data2=%d, Status=0x%02X\n", 
+    DEBUG_SERIAL.printf("Response sent: Command=0x%02X, Data1=%d, Data2=%d, Status=0x%02X\n", 
                   command, data1, data2, status);
     return true;
   } else {
-    Serial.printf("Failed to send response\n");
+    DEBUG_SERIAL.printf("Failed to send response\n");
     return false;
   }
 }
@@ -266,14 +276,14 @@ void setMotorRPM(uint16_t rpm) {
     isDecelerating = true;
     lastDecelTime = millis(); // Start deceleration immediately
     
-    Serial.printf("Starting deceleration from %d to %d\n", currentRPM, targetRPM);
+    DEBUG_SERIAL.printf("Starting deceleration from %d to %d\n", currentRPM, targetRPM);
   } else {
     // For acceleration or same speed, set immediately
     currentRPM = rpm;
     targetRPM = rpm;
     isDecelerating = false;
     
-    Serial.printf("Setting RPM directly to: %d\n", currentRPM);
+    DEBUG_SERIAL.printf("Setting RPM directly to: %d\n", currentRPM);
     
     // Send command with current direction and new RPM
     sendInverterCommand(currentDirection, currentRPM);
@@ -283,7 +293,7 @@ void setMotorRPM(uint16_t rpm) {
 void setMotorDirection(bool clockwise) {
   currentDirection = clockwise ? CMD_CW : CMD_CCW;
   
-  Serial.printf("Setting direction to: %s\n", clockwise ? "CW" : "CCW");
+  DEBUG_SERIAL.printf("Setting direction to: %s\n", clockwise ? "CW" : "CCW");
   
   // Send direction command with current RPM to inverter
   sendInverterCommand(currentDirection, currentRPM);
@@ -296,7 +306,7 @@ void stopMotor() {
   motorRunning = false;
   isDecelerating = false;
   
-  Serial.println("Stopping motor (RPM = 0)");
+  DEBUG_SERIAL.println("Stopping motor (RPM = 0)");
   
   // Send stop command (set RPM to 0) to inverter
   sendInverterCommand(currentDirection, 0);
@@ -309,7 +319,7 @@ void requestMotorStatus() {
   uint16_t statusData2 = (currentDirection == CMD_CW ? 0x8000 : 0x0000) | (currentRPM & 0x7FFF);
   sendResponse(MOTOR_STATUS_DATA, statusData1, statusData2, faultCode);
   
-  Serial.printf("Status sent - Actual RPM: %d, Set RPM: %d, Dir: %s, Fault: 0x%02X\n",
+  DEBUG_SERIAL.printf("Status sent - Actual RPM: %d, Set RPM: %d, Dir: %s, Fault: 0x%02X\n",
                 actualRPM, currentRPM, 
                 (currentDirection == CMD_CW) ? "CW" : "CCW", faultCode);
 }
@@ -324,12 +334,12 @@ void handleDeceleration() {
     // Decrease RPM by step size
     if (currentRPM > targetRPM + DECEL_STEP_SIZE) {
       currentRPM -= DECEL_STEP_SIZE;
-      Serial.printf("Decelerating to: %d\n", currentRPM);
+      DEBUG_SERIAL.printf("Decelerating to: %d\n", currentRPM);
     } else {
       // We've reached or are very close to target
       currentRPM = targetRPM;
       isDecelerating = false;
-      Serial.printf("Reached target RPM: %d\n", currentRPM);
+      DEBUG_SERIAL.printf("Reached target RPM: %d\n", currentRPM);
     }
     
     // Send updated RPM command to inverter
@@ -369,26 +379,26 @@ void sendInverterCommand(byte cmd, uint16_t rpm, byte acc) {
   txBuffer[8] = (crc >> 8) & 0xFF;
   txBuffer[9] = crc & 0xFF;
 
-  Serial1.write(txBuffer, 10);
+  INVERTER_SERIAL.write(txBuffer, 10);
 
-  Serial.printf(">> Sent CMD 0x%02X RPM: %d\n", cmd, rpm);
+  DEBUG_SERIAL.printf(">> Sent CMD 0x%02X RPM: %d\n", cmd, rpm);
 }
 
 bool readInverterResponse() {
-  if (Serial1.available() >= 10) {
-    Serial1.readBytes(rxBuffer, 10);
+  if (INVERTER_SERIAL.available() >= 10) {
+    INVERTER_SERIAL.readBytes(rxBuffer, 10);
     
-    Serial.print("<< Inverter Response: ");
+    DEBUG_SERIAL.print("<< Inverter Response: ");
     for (int i = 0; i < 10; i++) {
-      Serial.printf("0x%02X ", rxBuffer[i]);
+      DEBUG_SERIAL.printf("0x%02X ", rxBuffer[i]);
     }
-    Serial.println();
+    DEBUG_SERIAL.println();
 
     uint16_t crcCalc = calcCRC16(rxBuffer, 8);
     uint16_t crcRecv = (rxBuffer[8] << 8) | rxBuffer[9];
 
     if (crcCalc != crcRecv) {
-      Serial.println("!! CRC mismatch");
+      DEBUG_SERIAL.println("!! CRC mismatch");
       return false;
     }
 
@@ -397,12 +407,12 @@ bool readInverterResponse() {
     faultCode = rxBuffer[5];
 
     if (rxBuffer[0] == 0x06) {
-      Serial.println("ACK received from inverter");
+      DEBUG_SERIAL.println("ACK received from inverter");
     } else if (rxBuffer[0] == 0x15) {
-      Serial.println("NCK received from inverter");
+      DEBUG_SERIAL.println("NCK received from inverter");
     }
 
-    Serial.printf("Actual RPM: %d, Fault Code: 0x%02X\n", actualRPM, faultCode);
+    DEBUG_SERIAL.printf("Actual RPM: %d, Fault Code: 0x%02X\n", actualRPM, faultCode);
     
     return true;
   }
