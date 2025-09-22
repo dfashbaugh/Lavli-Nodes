@@ -9,9 +9,8 @@
 #define CAN_RX_PIN GPIO_NUM_5
 
 // Direct UART pins to inverter (replacing the intermediate motor controller)
-#define INVERTER_TX_PIN 18  // TX to inverter (ESP32 TX -> Inverter COM)
-#define INVERTER_RX_PIN 17  // RX from inverter (ESP32 RX -> Inverter DATA)
-#define MOTOR_PULSE_PIN 8   // Keep for debugging if needed
+// #define INVERTER_TX_PIN 18  // TX to inverter (ESP32 TX -> Inverter COM)
+// #define INVERTER_RX_PIN 17  // RX from inverter (ESP32 RX -> Inverter DATA)
 
 // Motor control command definitions (from master)
 #define MOTOR_SET_RPM_CMD     0x30
@@ -34,7 +33,7 @@
 #define CMD_ACCSPD 0xA0
 
 // Use HardwareSerial for inverter communication
-HardwareSerial inverterSerial(1); // Use UART1
+// HardwareSerial inverterSerial(1); // Use UART1
 
 // Motor state variables
 uint16_t commandedRPM = 0;
@@ -95,9 +94,8 @@ void setup() {
   delay(2000);
 
   // Initialize inverter serial communication (direct to inverter)
-  pinMode(MOTOR_PULSE_PIN, OUTPUT);
-  digitalWrite(MOTOR_PULSE_PIN, LOW); // Ensure pulse pin is low
-  inverterSerial.begin(2400, SERIAL_8N1, INVERTER_RX_PIN, INVERTER_TX_PIN); // 2400 baud for inverter
+  // inverterSerial.begin(2400, SERIAL_8N1, INVERTER_RX_PIN, INVERTER_TX_PIN); // 2400 baud for inverter
+  Serial1.begin(2400); // Using default UART1 pins
   Serial.println("Inverter UART initialized at 2400 baud");
 
   // Initialize CAN
@@ -371,14 +369,14 @@ void sendInverterCommand(byte cmd, uint16_t rpm, byte acc) {
   txBuffer[8] = (crc >> 8) & 0xFF;
   txBuffer[9] = crc & 0xFF;
 
-  inverterSerial.write(txBuffer, 10);
+  Serial1.write(txBuffer, 10);
 
   Serial.printf(">> Sent CMD 0x%02X RPM: %d\n", cmd, rpm);
 }
 
 bool readInverterResponse() {
-  if (inverterSerial.available() >= 10) {
-    inverterSerial.readBytes(rxBuffer, 10);
+  if (Serial1.available() >= 10) {
+    Serial1.readBytes(rxBuffer, 10);
     
     Serial.print("<< Inverter Response: ");
     for (int i = 0; i < 10; i++) {
