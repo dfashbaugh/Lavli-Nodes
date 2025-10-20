@@ -7,8 +7,11 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include "ble_provisioning.h"
 
-// MQTT Configuration
+// WiFi Provisioning Configuration
+// Options: 0 = Hardcoded credentials, 1 = WiFiManager, 2 = BLE Provisioning
+#define PROVISIONING_MODE 2
 #define USE_PROVISIONING false
 #define MQTT_BROKER "b-f3e16066-c8b5-48a8-81b0-bc3347afef80-1.mq.us-east-1.amazonaws.com"
 #define MQTT_PORT 8883
@@ -505,13 +508,28 @@ void doSerialControl()
 }
 
 void loop() {
+#if PROVISIONING_MODE == 2
+  // Process BLE provisioning state machine
+  BLEProvisioning::process();
+
+  // Only proceed with MQTT and other operations if WiFi is connected
+  if (!BLEProvisioning::isWiFiConnected()) {
+    // While waiting for WiFi, still handle UI
+    handleSwitchPress();
+    readEncoder();
+    drawLEDs();
+    delay(10);
+    return;
+  }
+#endif
+
   // Handle MQTT connection
   if (!mqttClient.connected()) {
     Serial.println("[LOOP] MQTT disconnected, attempting reconnection...");
     connectToMQTT();
   }
   mqttClient.loop();
-  
+
   // Process MQTT commands
   processMQTTCommands();
 
@@ -532,51 +550,69 @@ void loop() {
 
 void setupWiFi() {
   Serial.println("[WIFI] Setting up WiFi...");
-  
+
+#if PROVISIONING_MODE == 2
+  // BLE Provisioning Mode
+  Serial.println("[WIFI] Using BLE provisioning mode");
+  Serial.println("[WIFI] Starting BLE provisioning service...");
+  BLEProvisioning::begin("Lavli Master Node");
+  Serial.println("[WIFI] BLE provisioning active - use BLE app to configure WiFi");
+  Serial.println("[WIFI] WiFi will connect after credentials are provided via BLE");
+  // WiFi connection will happen asynchronously in loop() via BLEProvisioning::process()
+  return; // Don't wait for WiFi here in BLE mode
+
+#elif PROVISIONING_MODE == 1
+  // WiFiManager Mode
   if (USE_PROVISIONING) {
     Serial.println("[WIFI] Using WiFiManager provisioning mode");
     wifiManager.setAPCallback(configModeCallback);
     wifiManager.setSaveConfigCallback(saveConfigCallback);
-    
+
     Serial.println("[WIFI] Starting WiFiManager autoConnect...");
     if (!wifiManager.autoConnect(AP_NAME)) {
       Serial.println("[WIFI] ERROR: Failed to connect and hit timeout");
       Serial.println("[WIFI] Restarting ESP32...");
       ESP.restart();
     }
-  } else {
-    Serial.println("[WIFI] Using hardcoded credentials mode");
-    Serial.print("[WIFI] SSID: ");
-    Serial.println(WIFI_SSID);
-    Serial.println("[WIFI] Starting WiFi connection...");
-    
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("[WIFI] Connecting to ");
-    Serial.print(WIFI_SSID);
-    
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
-      attempts++;
-      if (attempts > 60) {
-        Serial.println("");
-        Serial.println("[WIFI] ERROR: Connection timeout after 30 seconds");
-        Serial.println("[WIFI] Restarting ESP32...");
-        ESP.restart();
-      }
-    }
-    Serial.println("");
   }
-  
-  Serial.println("[WIFI] WiFi connected successfully!");
-  Serial.print("[WIFI] IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("[WIFI] MAC address: ");
-  Serial.println(WiFi.macAddress());
-  Serial.print("[WIFI] Signal strength (RSSI): ");
-  Serial.print(WiFi.RSSI());
-  Serial.println(" dBm");
+
+#else
+  // Hardcoded Credentials Mode (Mode 0 or default)
+  Serial.println("[WIFI] Using hardcoded credentials mode");
+  Serial.print("[WIFI] SSID: ");
+  Serial.println(WIFI_SSID);
+  Serial.println("[WIFI] Starting WiFi connection...");
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("[WIFI] Connecting to ");
+  Serial.print(WIFI_SSID);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+    if (attempts > 60) {
+      Serial.println("");
+      Serial.println("[WIFI] ERROR: Connection timeout after 30 seconds");
+      Serial.println("[WIFI] Restarting ESP32...");
+      ESP.restart();
+    }
+  }
+  Serial.println("");
+#endif
+
+  // Only print connection info if we're connected at this point
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("[WIFI] WiFi connected successfully!");
+    Serial.print("[WIFI] IP address: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("[WIFI] MAC address: ");
+    Serial.println(WiFi.macAddress());
+    Serial.print("[WIFI] Signal strength (RSSI): ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+  }
 }
 
 void configModeCallback(WiFiManager *myWiFiManager) {
