@@ -516,13 +516,45 @@ void doSerialControl()
 
 void loop() {
   static unsigned long lastCheckInTime = 0;
+  static unsigned long lastStatusPrint = 0;
+  static bool wifiWasConnected = false;
 
 #if PROVISIONING_MODE == 2
   // Process BLE provisioning state machine
   BLEProvisioning::process();
 
+  // Check if WiFi just connected (transition from disconnected to connected)
+  bool wifiConnectedNow = BLEProvisioning::isWiFiConnected();
+  if (wifiConnectedNow && !wifiWasConnected) {
+    Serial.println("[DEBUG] WiFi just connected! Resetting check-in timer.");
+    lastCheckInTime = millis();  // Reset timer so first check-in happens in 5 seconds
+  }
+  wifiWasConnected = wifiConnectedNow;
+
+  // Print WiFi status every 10 seconds for debugging
+  if (millis() - lastStatusPrint > 10000) {
+    lastStatusPrint = millis();
+    Serial.print("[DEBUG] BLE WiFi Connected: ");
+    Serial.print(wifiConnectedNow ? "YES" : "NO");
+    Serial.print(" | WiFi Status: ");
+    Serial.print(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
+
+    if (wifiConnectedNow) {
+      Serial.print(" | Next check-in in: ");
+      unsigned long timeSinceLastCheckIn = millis() - lastCheckInTime;
+      if (timeSinceLastCheckIn >= CHECKIN_INTERVAL_MS) {
+        Serial.print("0 (overdue)");
+      } else {
+        Serial.print((CHECKIN_INTERVAL_MS - timeSinceLastCheckIn) / 1000);
+      }
+      Serial.println(" seconds");
+    } else {
+      Serial.println(" | Check-in waiting for WiFi connection");
+    }
+  }
+
   // Only proceed with MQTT and other operations if WiFi is connected
-  if (!BLEProvisioning::isWiFiConnected()) {
+  if (!wifiConnectedNow) {
     // While waiting for WiFi, still handle UI
     handleSwitchPress();
     readEncoder();
@@ -554,6 +586,7 @@ void loop() {
 
   // Perform periodic HTTP check-in
   if (millis() - lastCheckInTime >= CHECKIN_INTERVAL_MS) {
+    Serial.println("[DEBUG] Check-in timer triggered!");
     lastCheckInTime = millis();
     performCheckIn();
   }
@@ -1245,11 +1278,16 @@ void performCheckIn() {
   // Current implementation sends fixed values for testing
   // Future: Use currentState enum to determine actual status
 
+  Serial.println("[CHECKIN] performCheckIn() called");
+  Serial.print("[CHECKIN] WiFi status: ");
+  Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
+
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("[CHECKIN] Skipping check-in - WiFi not connected");
     return;
   }
 
+  Serial.println("[CHECKIN] WiFi is connected, proceeding with check-in...");
   HTTPClient http;
   String url = "http://" + String(CHECKIN_SERVER) + ":" + String(CHECKIN_PORT) + "/api/machines/check-in";
 

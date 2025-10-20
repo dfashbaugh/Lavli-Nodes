@@ -133,7 +133,6 @@ void BLEProvisioning::begin(const char* deviceName) {
 }
 
 void BLEProvisioning::process() {
-
   if (!g_bleActive) {
     return;
   }
@@ -198,7 +197,8 @@ void BLEProvisioning::process() {
 }
 
 bool BLEProvisioning::isWiFiConnected() {
-  return (status == BLE_PROV_WIFI_CONNECTED && WiFi.status() == WL_CONNECTED);
+  // WiFi is connected if we're in WIFI_CONNECTED or SHUTDOWN state (BLE shut down after successful connection)
+  return ((status == BLE_PROV_WIFI_CONNECTED || status == BLE_PROV_SHUTDOWN) && WiFi.status() == WL_CONNECTED);
 }
 
 BLEProvisioningStatus BLEProvisioning::getStatus() {
