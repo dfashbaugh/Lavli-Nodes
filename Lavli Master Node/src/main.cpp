@@ -6,6 +6,7 @@
 #include <WiFiManager.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 
 // MQTT Configuration
 #define USE_PROVISIONING false
@@ -22,6 +23,7 @@
 #define TOPIC_DRY "/lavli/dry"
 #define TOPIC_WASH "/lavli/wash"
 #define TOPIC_STOP "/lavli/stop"
+#define TOPIC_CAN_CONTROL "/lavli/can"
 
 // Interface Setup
 #define LED_PIN GPIO_NUM_6
@@ -63,6 +65,17 @@ struct MQTTCommand {
 MQTTCommand dryCommand = {false, 0, 0};
 MQTTCommand washCommand = {false, 0, 0};
 MQTTCommand stopCommand = {false, 0, 0};
+
+// Generic CAN Command Structure
+struct GenericCANCommand {
+  bool received;
+  uint16_t address;
+  uint8_t data[8];
+  uint8_t data_length;
+  unsigned long timestamp;
+};
+
+GenericCANCommand genericCANCommand = {false, 0, {0}, 0, 0};
 
 // CAN IDs of Controllers
 #define CONTROLLER_120V_ADDRESS 0x543
@@ -127,6 +140,8 @@ void saveConfigCallback();
 void connectToMQTT();
 void onMqttMessage(char* topic, byte* payload, unsigned int length);
 void processMQTTCommands();
+bool parseGenericCANCommand(String jsonMessage);
+bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length);
 
 bool initializeCAN();
 void initializeSensorStorage();
@@ -386,6 +401,11 @@ void setup() {
   Serial.println("  " + String(TOPIC_DRY) + " - Dry command");
   Serial.println("  " + String(TOPIC_WASH) + " - Wash command");
   Serial.println("  " + String(TOPIC_STOP) + " - Stop command");
+  Serial.println("  " + String(TOPIC_CAN_CONTROL) + " - Generic CAN control (JSON)");
+  Serial.println();
+  Serial.println("Generic CAN JSON format:");
+  Serial.println("  {\"address\":\"0x311\", \"data\":[\"0x30\", 50, 0]}");
+  Serial.println("  {\"address\":785, \"data\":[1, 2]}");
   Serial.println();
 }
 
@@ -615,6 +635,13 @@ void connectToMQTT() {
         allSubscribed = false;
       }
       
+      if (mqttClient.subscribe(TOPIC_CAN_CONTROL)) {
+        Serial.print(" " + String(TOPIC_CAN_CONTROL) + " ✓");
+      } else {
+        Serial.print(" " + String(TOPIC_CAN_CONTROL) + " ✗");
+        allSubscribed = false;
+      }
+      
       Serial.println();
       
       if (allSubscribed) {
@@ -674,6 +701,14 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     stopCommand.timestamp = millis();
     Serial.println("[MQTT] Stop command received");
   }
+  else if (strcmp(topic, TOPIC_CAN_CONTROL) == 0) {
+    Serial.println("[MQTT] Generic CAN command received");
+    if (parseGenericCANCommand(message)) {
+      Serial.println("[MQTT] CAN command parsed successfully");
+    } else {
+      Serial.println("[MQTT] Failed to parse CAN command");
+    }
+  }
   
   Serial.println("[MQTT] ========================\n");
 }
@@ -714,6 +749,22 @@ void processMQTTCommands() {
     
     // Reset the command flag
     stopCommand.received = false;
+  }
+  
+  // Process generic CAN command
+  if (genericCANCommand.received) {
+    Serial.println("[COMMAND] Processing GENERIC CAN command");
+    Serial.printf("[COMMAND] Address: 0x%03X, Data Length: %d\n", genericCANCommand.address, genericCANCommand.data_length);
+    Serial.print("[COMMAND] Data: ");
+    for (int i = 0; i < genericCANCommand.data_length; i++) {
+      Serial.printf("0x%02X ", genericCANCommand.data[i]);
+    }
+    Serial.println();
+    
+    sendGenericCANMessage(genericCANCommand.address, genericCANCommand.data, genericCANCommand.data_length);
+    
+    // Reset the command flag
+    genericCANCommand.received = false;
   }
 }
 
@@ -1023,4 +1074,98 @@ bool requestMotorStatus(uint16_t device_address) {
   message.data[0] = MOTOR_STATUS_CMD;
   
   return twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+}
+
+bool parseGenericCANCommand(String jsonMessage) {
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, jsonMessage);
+  
+  if (error) {
+    Serial.print("[JSON] Parse failed: ");
+    Serial.println(error.c_str());
+    return false;
+  }
+  
+  // Parse address (supports hex strings like "0x311" or decimal)
+  if (!doc.containsKey("address")) {
+    Serial.println("[JSON] Missing 'address' field");
+    return false;
+  }
+  
+  String addressStr = doc["address"];
+  uint16_t address;
+  if (addressStr.startsWith("0x") || addressStr.startsWith("0X")) {
+    address = (uint16_t)strtol(addressStr.c_str(), NULL, 16);
+  } else {
+    address = doc["address"].as<uint16_t>();
+  }
+  
+  // Parse data array
+  if (!doc.containsKey("data") || !doc["data"].is<JsonArray>()) {
+    Serial.println("[JSON] Missing or invalid 'data' array");
+    return false;
+  }
+  
+  JsonArray dataArray = doc["data"];
+  uint8_t dataLength = dataArray.size();
+  
+  if (dataLength > 8) {
+    Serial.println("[JSON] Data array too large (max 8 bytes)");
+    return false;
+  }
+  
+  // Copy data to command structure
+  genericCANCommand.address = address;
+  genericCANCommand.data_length = dataLength;
+  genericCANCommand.timestamp = millis();
+  
+  for (uint8_t i = 0; i < dataLength; i++) {
+    if (dataArray[i].is<String>()) {
+      String byteStr = dataArray[i];
+      if (byteStr.startsWith("0x") || byteStr.startsWith("0X")) {
+        genericCANCommand.data[i] = (uint8_t)strtol(byteStr.c_str(), NULL, 16);
+      } else {
+        genericCANCommand.data[i] = byteStr.toInt();
+      }
+    } else {
+      genericCANCommand.data[i] = dataArray[i].as<uint8_t>();
+    }
+  }
+  
+  genericCANCommand.received = true;
+  
+  Serial.printf("[JSON] Parsed CAN command: Address=0x%03X, Length=%d\n", address, dataLength);
+  return true;
+}
+
+bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length) {
+  if (data_length > 8) {
+    Serial.println("[CAN] Data length exceeds maximum (8 bytes)");
+    return false;
+  }
+  
+  twai_message_t message;
+  
+  message.identifier = address;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = data_length;
+  
+  for (uint8_t i = 0; i < data_length; i++) {
+    message.data[i] = data[i];
+  }
+  
+  bool result = twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK;
+  
+  if (result) {
+    Serial.printf("[CAN] Generic message sent to 0x%03X: ", address);
+    for (uint8_t i = 0; i < data_length; i++) {
+      Serial.printf("0x%02X ", data[i]);
+    }
+    Serial.println();
+  } else {
+    Serial.printf("[CAN] Failed to send message to 0x%03X\n", address);
+  }
+  
+  return result;
 }

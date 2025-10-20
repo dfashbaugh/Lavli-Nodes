@@ -38,6 +38,9 @@
 #define CMD_LOAD  0xB0
 #define CMD_ACCSPD 0xA0
 
+#define PORT_1_PIN GPIO_NUM_18
+#define PORT_2_PIN GPIO_NUM_17
+
 // Use HardwareSerial for inverter communication
 // HardwareSerial inverterSerial(1); // Use UART1
 
@@ -96,6 +99,11 @@ void handleDeceleration();
 void setup() {
   DEBUG_SERIAL.begin(115200);
   DEBUG_SERIAL.printf("Integrated CAN Motor Controller - Address: 0x%03X\n", MY_CAN_ADDRESS);
+
+  pinMode(PORT_1_PIN, OUTPUT);
+  pinMode(PORT_2_PIN, OUTPUT);
+  digitalWrite(PORT_1_PIN, HIGH);
+  digitalWrite(PORT_2_PIN, HIGH);
 
   delay(2000);
 
