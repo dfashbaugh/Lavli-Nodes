@@ -3,6 +3,11 @@
 
 #include <Arduino.h>
 
+// Forward declarations for friend classes
+class SSIDWriteCallback;
+class PassWriteCallback;
+class ControlWriteCallback;
+
 // BLE Provisioning Status
 enum BLEProvisioningStatus {
   BLE_PROV_IDLE,
@@ -34,6 +39,14 @@ public:
 
   // Notify status to BLE client (if connected)
   static void notifyStatus(const char* message);
+
+  // Get device MAC address
+  static String getMacAddress();
+
+  // Friend classes for BLE callbacks
+  friend class SSIDWriteCallback;
+  friend class PassWriteCallback;
+  friend class ControlWriteCallback;
 
 private:
   static BLEProvisioningStatus status;

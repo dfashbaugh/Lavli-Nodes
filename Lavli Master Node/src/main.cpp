@@ -7,6 +7,7 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include "ble_provisioning.h"
 
 // WiFi Provisioning Configuration
@@ -18,6 +19,11 @@
 #define MQTT_USERNAME "admin"
 #define MQTT_PASSWORD "lavlidevbroker!321"
 #define AP_NAME "Lavli-CAN-Master"
+
+// HTTP Check-in Configuration
+#define CHECKIN_SERVER "192.168.1.128"  // Update with your server IP/hostname
+#define CHECKIN_PORT 3000
+#define CHECKIN_INTERVAL_MS 5000  // 5 seconds
 
 #define WIFI_SSID "PKFLetsKickIt"
 #define WIFI_PASSWORD "ClarkIsACat"
@@ -145,6 +151,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length);
 void processMQTTCommands();
 bool parseGenericCANCommand(String jsonMessage);
 bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length);
+void performCheckIn();
 
 bool initializeCAN();
 void initializeSensorStorage();
@@ -508,6 +515,8 @@ void doSerialControl()
 }
 
 void loop() {
+  static unsigned long lastCheckInTime = 0;
+
 #if PROVISIONING_MODE == 2
   // Process BLE provisioning state machine
   BLEProvisioning::process();
@@ -523,12 +532,13 @@ void loop() {
   }
 #endif
 
-  // Handle MQTT connection
-  if (!mqttClient.connected()) {
-    Serial.println("[LOOP] MQTT disconnected, attempting reconnection...");
-    connectToMQTT();
+  // Handle MQTT connection (only if WiFi is connected)
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!mqttClient.connected()) {
+      connectToMQTT();
+    }
+    mqttClient.loop();
   }
-  mqttClient.loop();
 
   // Process MQTT commands
   processMQTTCommands();
@@ -541,6 +551,12 @@ void loop() {
 
   // Check program timer
   checkProgramTimer();
+
+  // Perform periodic HTTP check-in
+  if (millis() - lastCheckInTime >= CHECKIN_INTERVAL_MS) {
+    lastCheckInTime = millis();
+    performCheckIn();
+  }
 
   handleSwitchPress();
   readEncoder();
@@ -626,73 +642,91 @@ void saveConfigCallback() {
 }
 
 void connectToMQTT() {
-  int attempts = 0;
-  while (!mqttClient.connected()) {
-    attempts++;
-    Serial.print("[MQTT] Attempt #");
-    Serial.print(attempts);
-    Serial.print(" - Connecting to ");
-    Serial.print(MQTT_BROKER);
-    Serial.print(":");
-    Serial.println(MQTT_PORT);
-    
-    String clientId = "LavliCANMaster-" + String(random(0xffff), HEX);
-    Serial.print("[MQTT] Client ID: ");
-    Serial.println(clientId);
-    Serial.print("[MQTT] Username: ");
-    Serial.println(MQTT_USERNAME);
-    Serial.println("[MQTT] Establishing TLS connection...");
-    
-    if (mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
-      Serial.println("[MQTT] ✓ Connected successfully!");
-      
-      // Subscribe to all command topics
-      Serial.print("[MQTT] Subscribing to topics...");
-      bool allSubscribed = true;
-      
-      if (mqttClient.subscribe(TOPIC_DRY)) {
-        Serial.print(" " + String(TOPIC_DRY) + " ✓");
-      } else {
-        Serial.print(" " + String(TOPIC_DRY) + " ✗");
-        allSubscribed = false;
-      }
-      
-      if (mqttClient.subscribe(TOPIC_WASH)) {
-        Serial.print(" " + String(TOPIC_WASH) + " ✓");
-      } else {
-        Serial.print(" " + String(TOPIC_WASH) + " ✗");
-        allSubscribed = false;
-      }
-      
-      if (mqttClient.subscribe(TOPIC_STOP)) {
-        Serial.print(" " + String(TOPIC_STOP) + " ✓");
-      } else {
-        Serial.print(" " + String(TOPIC_STOP) + " ✗");
-        allSubscribed = false;
-      }
-      
-      if (mqttClient.subscribe(TOPIC_CAN_CONTROL)) {
-        Serial.print(" " + String(TOPIC_CAN_CONTROL) + " ✓");
-      } else {
-        Serial.print(" " + String(TOPIC_CAN_CONTROL) + " ✗");
-        allSubscribed = false;
-      }
-      
-      Serial.println();
-      
-      if (allSubscribed) {
-        Serial.println("[MQTT] ✓ Successfully subscribed to all topics!");
-        Serial.println("[MQTT] Ready to receive commands!");
-      } else {
-        Serial.println("[MQTT] ✗ Failed to subscribe to some topics");
-      }
+  // Check if WiFi is connected first
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[MQTT] Skipping MQTT connection - WiFi not connected");
+    return;
+  }
+
+  // Already connected, nothing to do
+  if (mqttClient.connected()) {
+    return;
+  }
+
+  // Rate limiting: only try to reconnect every 5 seconds
+  static unsigned long lastAttempt = 0;
+  static int attemptCount = 0;
+
+  if (millis() - lastAttempt < 5000) {
+    return;  // Too soon, skip this attempt
+  }
+
+  lastAttempt = millis();
+  attemptCount++;
+
+  Serial.print("[MQTT] Attempt #");
+  Serial.print(attemptCount);
+  Serial.print(" - Connecting to ");
+  Serial.print(MQTT_BROKER);
+  Serial.print(":");
+  Serial.println(MQTT_PORT);
+
+  String clientId = "LavliCANMaster-" + String(random(0xffff), HEX);
+  Serial.print("[MQTT] Client ID: ");
+  Serial.println(clientId);
+  Serial.print("[MQTT] Username: ");
+  Serial.println(MQTT_USERNAME);
+  Serial.println("[MQTT] Establishing TLS connection...");
+
+  if (mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
+    Serial.println("[MQTT] ✓ Connected successfully!");
+    attemptCount = 0;  // Reset counter on success
+
+    // Subscribe to all command topics
+    Serial.print("[MQTT] Subscribing to topics...");
+    bool allSubscribed = true;
+
+    if (mqttClient.subscribe(TOPIC_DRY)) {
+      Serial.print(" " + String(TOPIC_DRY) + " ✓");
     } else {
-      Serial.print("[MQTT] ✗ Connection failed, error code: ");
-      Serial.print(mqttClient.state());
-      Serial.println(" (see PubSubClient.h for error codes)");
-      Serial.println("[MQTT] Retrying in 5 seconds...");
-      delay(5000);
+      Serial.print(" " + String(TOPIC_DRY) + " ✗");
+      allSubscribed = false;
     }
+
+    if (mqttClient.subscribe(TOPIC_WASH)) {
+      Serial.print(" " + String(TOPIC_WASH) + " ✓");
+    } else {
+      Serial.print(" " + String(TOPIC_WASH) + " ✗");
+      allSubscribed = false;
+    }
+
+    if (mqttClient.subscribe(TOPIC_STOP)) {
+      Serial.print(" " + String(TOPIC_STOP) + " ✓");
+    } else {
+      Serial.print(" " + String(TOPIC_STOP) + " ✗");
+      allSubscribed = false;
+    }
+
+    if (mqttClient.subscribe(TOPIC_CAN_CONTROL)) {
+      Serial.print(" " + String(TOPIC_CAN_CONTROL) + " ✓");
+    } else {
+      Serial.print(" " + String(TOPIC_CAN_CONTROL) + " ✗");
+      allSubscribed = false;
+    }
+
+    Serial.println();
+
+    if (allSubscribed) {
+      Serial.println("[MQTT] ✓ Successfully subscribed to all topics!");
+      Serial.println("[MQTT] Ready to receive commands!");
+    } else {
+      Serial.println("[MQTT] ✗ Failed to subscribe to some topics");
+    }
+  } else {
+    Serial.print("[MQTT] ✗ Connection failed, error code: ");
+    Serial.print(mqttClient.state());
+    Serial.println(" (see PubSubClient.h for error codes)");
+    Serial.println("[MQTT] Will retry in 5 seconds...");
   }
 }
 
@@ -1113,21 +1147,21 @@ bool requestMotorStatus(uint16_t device_address) {
 }
 
 bool parseGenericCANCommand(String jsonMessage) {
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, jsonMessage);
-  
+
   if (error) {
     Serial.print("[JSON] Parse failed: ");
     Serial.println(error.c_str());
     return false;
   }
-  
+
   // Parse address (supports hex strings like "0x311" or decimal)
-  if (!doc.containsKey("address")) {
+  if (!doc["address"].is<JsonVariant>() || doc["address"].isNull()) {
     Serial.println("[JSON] Missing 'address' field");
     return false;
   }
-  
+
   String addressStr = doc["address"];
   uint16_t address;
   if (addressStr.startsWith("0x") || addressStr.startsWith("0X")) {
@@ -1135,9 +1169,9 @@ bool parseGenericCANCommand(String jsonMessage) {
   } else {
     address = doc["address"].as<uint16_t>();
   }
-  
+
   // Parse data array
-  if (!doc.containsKey("data") || !doc["data"].is<JsonArray>()) {
+  if (!doc["data"].is<JsonArray>()) {
     Serial.println("[JSON] Missing or invalid 'data' array");
     return false;
   }
@@ -1204,4 +1238,56 @@ bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length)
   }
   
   return result;
+}
+
+void performCheckIn() {
+  // TODO: Update machineStatus and machineStatusMessage to reflect real machine operation
+  // Current implementation sends fixed values for testing
+  // Future: Use currentState enum to determine actual status
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[CHECKIN] Skipping check-in - WiFi not connected");
+    return;
+  }
+
+  HTTPClient http;
+  String url = "http://" + String(CHECKIN_SERVER) + ":" + String(CHECKIN_PORT) + "/api/machines/check-in";
+
+  Serial.print("[CHECKIN] Connecting to: ");
+  Serial.println(url);
+
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+
+  // Get MAC address as hardwareId
+  String macAddress = BLEProvisioning::getMacAddress();
+
+  // Build JSON payload
+  JsonDocument doc;
+  doc["hardwareId"] = macAddress;
+  doc["machineStatus"] = "IDLE";  // TODO: Update with actual status from currentState
+  doc["machineStatusMessage"] = "Normal";  // TODO: Update with actual status message
+
+  String jsonPayload;
+  serializeJson(doc, jsonPayload);
+
+  Serial.print("[CHECKIN] Payload: ");
+  Serial.println(jsonPayload);
+
+  int httpResponseCode = http.POST(jsonPayload);
+
+  if (httpResponseCode > 0) {
+    Serial.print("[CHECKIN] Response code: ");
+    Serial.println(httpResponseCode);
+    String response = http.getString();
+    Serial.print("[CHECKIN] Response: ");
+    Serial.println(response);
+  } else {
+    Serial.print("[CHECKIN] Error code: ");
+    Serial.println(httpResponseCode);
+    Serial.print("[CHECKIN] Error: ");
+    Serial.println(http.errorToString(httpResponseCode));
+  }
+
+  http.end();
 }

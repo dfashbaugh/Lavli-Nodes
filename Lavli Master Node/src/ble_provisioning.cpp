@@ -1,6 +1,7 @@
 #include "ble_provisioning.h"
 #include <WiFi.h>
 #include <NimBLEDevice.h>
+#include <esp_mac.h>
 
 // ----------- BLE Service/Characteristic UUIDs (custom) -------------
 static const char* SERVICE_UUID       = "7b1e0001-0d7a-4c80-9f31-7f9c18a2b001";
@@ -8,6 +9,7 @@ static const char* SSID_CHAR_UUID     = "7b1e0002-0d7a-4c80-9f31-7f9c18a2b001"; 
 static const char* PASS_CHAR_UUID     = "7b1e0003-0d7a-4c80-9f31-7f9c18a2b001"; // write (no read)
 static const char* CONTROL_CHAR_UUID  = "7b1e0004-0d7a-4c80-9f31-7f9c18a2b001"; // write "CONNECT"
 static const char* STATUS_CHAR_UUID   = "7b1e0005-0d7a-4c80-9f31-7f9c18a2b001"; // notify
+static const char* MAC_CHAR_UUID      = "7b1e0006-0d7a-4c80-9f31-7f9c18a2b001"; // read
 
 // ----------- Static member initialization -------------
 BLEProvisioningStatus BLEProvisioning::status = BLE_PROV_IDLE;
@@ -23,7 +25,7 @@ static bool                  g_bleActive     = false;
 
 // ----------- BLE Callbacks -------------
 class SSIDWriteCallback : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& /*conn*/) override {
+  void onWrite(NimBLECharacteristic* c) {
     std::string v = c->getValue();
     BLEProvisioning::ssid = String(v.c_str());
     BLEProvisioning::notifyStatus(("SSID set: " + BLEProvisioning::ssid).c_str());
@@ -32,7 +34,7 @@ class SSIDWriteCallback : public NimBLECharacteristicCallbacks {
 };
 
 class PassWriteCallback : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& /*conn*/) override {
+  void onWrite(NimBLECharacteristic* c) {
     std::string v = c->getValue();
     BLEProvisioning::password = String(v.c_str());
     BLEProvisioning::notifyStatus("Password set");
@@ -41,7 +43,7 @@ class PassWriteCallback : public NimBLECharacteristicCallbacks {
 };
 
 class ControlWriteCallback : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& /*conn*/) override {
+  void onWrite(NimBLECharacteristic* c) {
     std::string v = c->getValue();
     String cmd = String(v.c_str());
     cmd.trim();
@@ -101,6 +103,14 @@ void BLEProvisioning::begin(const char* deviceName) {
     NIMBLE_PROPERTY::NOTIFY
   );
 
+  // MAC Address Characteristic (read-only)
+  auto* macChar = svc->createCharacteristic(
+    MAC_CHAR_UUID,
+    NIMBLE_PROPERTY::READ
+  );
+  String macAddress = getMacAddress();
+  macChar->setValue(macAddress.c_str());
+
   svc->start();
 
   g_advertising = NimBLEDevice::getAdvertising();
@@ -123,6 +133,7 @@ void BLEProvisioning::begin(const char* deviceName) {
 }
 
 void BLEProvisioning::process() {
+
   if (!g_bleActive) {
     return;
   }
@@ -219,4 +230,15 @@ void BLEProvisioning::notifyStatus(const char* msg) {
     g_statusChar->setValue((uint8_t*)msg, strlen(msg));
     g_statusChar->notify();
   }
+}
+
+String BLEProvisioning::getMacAddress() {
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  return String(macStr);
 }
