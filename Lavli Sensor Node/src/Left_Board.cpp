@@ -9,25 +9,14 @@
 #define MY_CAN_ADDRESS 0x124
 
 // Analog pin definitions - Map analog pin numbers to GPIO pins
-#define ANALOG_PIN_0 NULL   // A0
-#define ANALOG_PIN_1 NULL   // A1
-#define ANALOG_PIN_2 NULL   // A2
-#define ANALOG_PIN_3 NULL  // A3
-#define ANALOG_PIN_4 GPIO_NUM_11  // A4, Pressure Sensor Top
-#define ANALOG_PIN_5 GPIO_NUM_12  // A5
-#define ANALOG_PIN_6 GPIO_NUM_13  // A6
-#define ANALOG_PIN_7 GPIO_NUM_14  // A7
+#define ANALOG_PIN_0 GPIO_NUM_2   // A0 temp sensor 
+#define ANALOG_PIN_1 GPIO_NUM_3   // A1 temp Sensor
 
 // Digital pin definitions - Map digital pin numbers to GPIO pins
-#define DIGITAL_PIN_0 GPIO_NUM_1 // Water Level Sensor 1
-#define DIGITAL_PIN_1 GPIO_NUM_2 // Water Level Sensor 2
-#define DIGITAL_PIN_2 GPIO_NUM_3 // Water Level Sensor 3
-#define DIGITAL_PIN_3 GPIO_NUM_9 /// Water Level Sensor 4 Purge Bottom
-#define DIGITAL_PIN_4 GPIO_NUM_10 // Water Level Sensor 5 Purge Top
-#define DIGITAL_PIN_5 GPIO_NUM_20
-#define DIGITAL_PIN_6 GPIO_NUM_21
-#define DIGITAL_PIN_7 GPIO_NUM_47
-
+#define DIGITAL_PIN_0 GPIO_NUM_6 // Water Level Sensor 1
+#define DIGITAL_PIN_1 GPIO_NUM_7 // Water Level Sensor 2
+#define DIGITAL_PIN_2 GPIO_NUM_8 // Water Level Sensor 3
+#define DIGITAL_PIN_3 GPIO_NUM_10 //flow sensor 
 // Maximum number of pins supported
 #define MAX_ANALOG_PINS 8
 #define MAX_DIGITAL_PINS 8
@@ -45,6 +34,12 @@
 #define ALL_DIGITAL_DATA    0x23
 #define ERROR_RESPONSE      0xFF
 
+volatile int pulseCount = 0; // Variable to store pulse count
+unsigned long lastTime = 0;
+const unsigned long interval = 1000; // Interval to calculate flow rate (1 second)
+                                     
+                                     
+
 // Function prototypes
 bool initializeCAN();
 void initializePins();
@@ -59,16 +54,14 @@ bool sendAllDigitalData();
 bool sendErrorResponse(uint8_t pin, uint8_t error_code);
 int getAnalogGPIOForPin(int pin_number);
 int getDigitalGPIOForPin(int pin_number);
-
+double flowRate = 0.0;
 // Pin mapping arrays
 const int analog_pins[MAX_ANALOG_PINS] = {
-  ANALOG_PIN_0, ANALOG_PIN_1, ANALOG_PIN_2, ANALOG_PIN_3,
-  ANALOG_PIN_4, ANALOG_PIN_5, ANALOG_PIN_6, ANALOG_PIN_7
+  ANALOG_PIN_0, ANALOG_PIN_1, ANALOG_PIN_2 
 };
 
 const int digital_pins[MAX_DIGITAL_PINS] = {
-  DIGITAL_PIN_0, DIGITAL_PIN_1, DIGITAL_PIN_2, DIGITAL_PIN_3,
-  DIGITAL_PIN_4, DIGITAL_PIN_5, DIGITAL_PIN_6, DIGITAL_PIN_7
+  DIGITAL_PIN_0, DIGITAL_PIN_1, DIGITAL_PIN_2, DIGITAL_PIN_3
 };
 
 // CAN configuration
@@ -76,6 +69,9 @@ twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_
 twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
+void pulseCounter() {
+  pulseCount++;
+}
 void setup() {
   Serial.begin(115200);
   Serial.printf("CAN Sensor Device - Address: 0x%03X\n", MY_CAN_ADDRESS);
@@ -100,16 +96,14 @@ void setup() {
   
   // Test readings on startup
   Serial.println("\nInitial sensor readings:");
-  for (int i = 0; i < MAX_ANALOG_PINS; i++) {
-    uint16_t value = readAnalogPin(i);
+  uint16_t temp_sensor_1 = readAnalogPin(0);
+  Serial.printf("Analog pin %d: %d (%.2fC)\n", i, temp_sensor_1, ((temp_sensor_1 * 5)/4095.0;// raw input * inut voltage (5V) / max ADC value (4095)
   
-    double psi =  (((value * 3.3 / 4095.0)/0.72)-0.5) * (150/ (4.5-0.5));
-                  // voltage calculation * psi/voltage range ratio
-
-    Serial.printf("Analog pin %d: %d (%.2fPSI)\n", i, value,psi);
-  }
+  uint16_t temp_sensor_2 = readAnalogPin(1);
+  Serial.printf("Analog pin %d: %d (%.2fC)\n", i, temp_sensor_2, (((temp_sensor_2 * 5)/4095.0;
   
-  for (int i = 0; i < MAX_DIGITAL_PINS; i++) {
+  //excludes flow sensor for now      
+  for (int i = 0; i < 3; i++) {
     bool value = readDigitalPin(i);
     Serial.printf("Digital pin %d: %s\n", i, value ? "HIGH" : "LOW");
   }
@@ -118,8 +112,20 @@ void setup() {
 }
 
 void loop() {
-  // Continuously listen for CAN messages
+
+ // Calculate flow rate every interval
+  unsigned long currentTime = millis();
+  if (currentTime - lastTime >= interval) {
+    detachedInterrupt(digitalPinToInterrupt(getDigitalGPIOForPin(3)));
+    flowRate = (pulseCount/7.5); // change 7.5 if inaccrate (7.5 pulses per liter)
+    pulseCount = 0;
+  }
+  lastTime = currentTime;
+  attachInterrupt(digitalPinToInterrupt(getDigitalGPIOForPin(3)), pulseCounter, RISING);
+  
+  //list end for CAN messages 
   receiveCANMessages();
+ 
   delay(10); // Small delay to prevent overwhelming the CPU
 }
 
@@ -153,14 +159,20 @@ void initializePins() {
   }
   
   // Initialize digital input pins
-  for (int pin = 0; pin < MAX_DIGITAL_PINS; pin++) {
+  for (int pin = 0; pin < 3 pin++) {
     int gpio_pin = getDigitalGPIOForPin(pin);
     if (gpio_pin != -1) {
       pinMode(gpio_pin, INPUT_PULLUP); // Use pull-up resistors
       Serial.printf("Digital pin %d -> GPIO %d initialized as INPUT_PULLUP\n", pin, gpio_pin);
     }
   }
-  
+
+  int gpio_p = getDigitalGPIOForPin(3);
+  if (gpio_p != -1) {
+    pinMode(gpio_p, INPUT_PULLUP); // Use pull-up resistors
+    attachInterrupt(digitalPinToInterrupt(gpio_p), pulseCounter, RISING);});
+      Serial.printf("Digital pin %d -> GPIO %d initialized as INPUT_PULLUP with interrupt\n", 3, gpio_p);
+  }
   Serial.println("Pin initialization complete");
 }
 
@@ -187,8 +199,8 @@ uint16_t readAnalogPin(int pin_number) {
   }
   
   uint16_t reading = analogRead(gpio_pin);
- double psi =  (((reading * 3.3 / 4095.0)/0.72)-0.5) * (150/ (4.5-0.5));
-  return psi;
+  double temp = (((reading* 5)/4095.0;
+  return temp;
 }
 
 bool readDigitalPin(int pin_number) {
@@ -346,7 +358,18 @@ bool sendAllAnalogData() {
     
     // Pack up to 2 analog readings per message
     for (int pin = start_pin; pin < start_pin + 2 && pin < MAX_ANALOG_PINS; pin++) {
-      uint16_t value = readAnalogPin(pin);
+      // Special handling for flow sensor on pin 3
+      // Needs to use flowRate variable instead of analog reading 
+      if (pin == 3){
+        uint16_t value = (uint16_t) flowRate;
+        response.data[data_index++] = pin;                    // Pin number
+        response.data[data_index++] = (value >> 8) & 0xFF;   // High byte
+        response.data[data_index++] = value & 0xFF;          // Low byte
+        pins_in_message++;
+
+      }
+
+      uint16_t value = (readAnalogPin(pin) * 5)/4095.0;
       
       response.data[data_index++] = pin;                    // Pin number
       response.data[data_index++] = (value >> 8) & 0xFF;   // High byte
