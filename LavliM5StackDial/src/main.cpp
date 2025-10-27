@@ -123,8 +123,8 @@ void loop() {
   // Main screen encoder handling
   long enc = M5Dial.Encoder.read();
   if (enc != lastEnc) {
-    // Reduce to two states using modulo; keeps working if you keep spinning
-    int idx = (int)((enc % 2 + 2) % 2);  // 0 or 1, handles negatives
+    // Require 4 encoder counts to switch modes (better detent alignment)
+    int idx = (int)((enc / 4 % 2 + 2) % 2);  // 0 or 1, handles negatives, divides by 4
     Mode newMode = (idx == 0) ? MODE_WASH : MODE_DRY;
     if (newMode != currentMode) {
       currentMode = newMode;
