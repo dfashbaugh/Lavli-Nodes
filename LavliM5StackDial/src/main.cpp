@@ -1,9 +1,13 @@
 #include <M5Dial.h>
 
 enum Mode : int { MODE_WASH = 0, MODE_DRY = 1 };
+enum Screen : int { SCREEN_STARTUP = 0, SCREEN_MAIN = 1 };
 
 long lastEnc = LONG_MIN;
 Mode currentMode = MODE_WASH;
+Screen currentScreen = SCREEN_STARTUP;
+unsigned long startupStartTime = 0;
+const unsigned long STARTUP_DURATION = 3000; // 3 seconds
 
 // ---------- Draw helpers ----------
 void drawWaterDrop(int cx, int cy, int r, uint32_t color) {
@@ -29,6 +33,32 @@ void drawSun(int cx, int cy, int r, uint32_t color) {
     int y2 = cy + (int)(sinf(a) * (rayLen));
     M5Dial.Display.drawLine(x1, y1, x2, y2, color);
   }
+}
+
+void drawStartupScreen() {
+  auto& d = M5Dial.Display;
+  d.clear();
+  
+  // Get screen center
+  int cx = d.width() / 2;
+  int cy = d.height() / 2;
+  
+  // Create a shiny gradient effect with multiple text layers
+  d.setTextDatum(middle_center);
+  d.setTextSize(3);
+  
+  // Background shadow (slightly offset)
+  d.setTextColor(0x2104); // Dark blue shadow
+  d.drawString("Lavli", cx + 2, cy + 2);
+  
+  // Main text with gradient effect
+  d.setTextColor(0x07FF); // Cyan
+  d.drawString("Lavli", cx, cy);
+  
+  // Highlight overlay
+  d.setTextColor(WHITE);
+  d.setTextSize(2);
+  d.drawString("Lavli", cx - 1, cy - 1);
 }
 
 void drawUI(Mode m) {
@@ -68,7 +98,10 @@ void setup() {
   // enableEncoder = true, enableRFID = false
   M5Dial.begin(cfg, true, false);              // initializes device and encoder
   M5Dial.Display.setTextDatum(middle_center);  // center text
-  drawUI(currentMode);
+  
+  // Show startup screen
+  drawStartupScreen();
+  startupStartTime = millis();
 
   // Start encoder at 0 so modulo works cleanly
   M5Dial.Encoder.write(0);
@@ -78,6 +111,16 @@ void setup() {
 void loop() {
   M5Dial.update();  // required for input updates
 
+  // Handle startup screen timing
+  if (currentScreen == SCREEN_STARTUP) {
+    if (millis() - startupStartTime >= STARTUP_DURATION) {
+      currentScreen = SCREEN_MAIN;
+      drawUI(currentMode);
+    }
+    return; // Don't process encoder during startup
+  }
+
+  // Main screen encoder handling
   long enc = M5Dial.Encoder.read();
   if (enc != lastEnc) {
     // Reduce to two states using modulo; keeps working if you keep spinning
