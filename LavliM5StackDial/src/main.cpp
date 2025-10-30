@@ -1,13 +1,19 @@
 #include <M5Dial.h>
+#include "can_comm.h"
+#include "provisioning.h"
 
 enum Mode : int { MODE_WASH = 0, MODE_DRY = 1 };
 enum Screen : int { SCREEN_STARTUP = 0, SCREEN_MAIN = 1 };
 
 long lastEnc = LONG_MIN;
 Mode currentMode = MODE_WASH;
+Mode lastSentMode = MODE_DRY; // Initialize to opposite so first selection sends command
 Screen currentScreen = SCREEN_STARTUP;
 unsigned long startupStartTime = 0;
 const unsigned long STARTUP_DURATION = 3000; // 3 seconds
+
+// CAN communication variables
+bool canInitialized = false;
 
 // ---------- Draw helpers ----------
 void drawWaterDrop(int cx, int cy, int r, uint32_t color) {
@@ -35,6 +41,41 @@ void drawSun(int cx, int cy, int r, uint32_t color) {
   }
 }
 
+void drawWiFiIcon(int x, int y, uint32_t color) {
+  auto& d = M5Dial.Display;
+  // Draw WiFi signal bars
+  d.fillRect(x, y + 6, 2, 2, color);
+  d.fillRect(x + 3, y + 4, 2, 4, color);
+  d.fillRect(x + 6, y + 2, 2, 6, color);
+  d.fillRect(x + 9, y, 2, 8, color);
+}
+
+void drawBluetoothIcon(int x, int y, uint32_t color) {
+  auto& d = M5Dial.Display;
+  // Simple Bluetooth "B" shape
+  d.fillRect(x + 2, y, 1, 8, color);       // Vertical line
+  d.fillRect(x + 3, y, 3, 1, color);       // Top horizontal
+  d.fillRect(x + 3, y + 3, 3, 1, color);   // Middle horizontal  
+  d.fillRect(x + 3, y + 7, 3, 1, color);   // Bottom horizontal
+  d.fillRect(x + 6, y + 1, 1, 2, color);   // Top right vertical
+  d.fillRect(x + 6, y + 5, 1, 2, color);   // Bottom right vertical
+}
+
+void drawStatusIcons() {
+  auto& d = M5Dial.Display;
+  int screenWidth = d.width();
+  
+  // Draw WiFi icon if connected
+  if (wifiConnected) {
+    drawWiFiIcon(screenWidth - 25, 5, 0x07E0); // Green for connected
+  }
+  
+  // Draw Bluetooth icon if BLE is active
+  if (bleActive) {
+    drawBluetoothIcon(screenWidth - 45, 5, 0x001F); // Blue for BLE active
+  }
+}
+
 void drawStartupScreen() {
   auto& d = M5Dial.Display;
   d.clear();
@@ -48,17 +89,17 @@ void drawStartupScreen() {
   d.setTextSize(3);
   
   // Background shadow (slightly offset)
-  d.setTextColor(0x2104); // Dark blue shadow
-  d.drawString("Lavli", cx + 2, cy + 2);
+  // d.setTextColor(0x2104); // Dark blue shadow
+  // d.drawString("Lavli", cx + 2, cy + 2);
   
   // Main text with gradient effect
   d.setTextColor(0x07FF); // Cyan
   d.drawString("Lavli", cx, cy);
   
-  // Highlight overlay
-  d.setTextColor(WHITE);
-  d.setTextSize(2);
-  d.drawString("Lavli", cx - 1, cy - 1);
+  // // Highlight overlay
+  // d.setTextColor(WHITE);
+  // d.setTextSize(2);
+  // d.drawString("Lavli", cx - 1, cy - 1);
 }
 
 void drawUI(Mode m) {
@@ -91,6 +132,9 @@ void drawUI(Mode m) {
   d.setTextSize(1);
   d.setTextColor(0xC618 /* light gray */, BLACK);
   d.drawString("Turn dial to switch", cx, d.height() - 18);
+  
+  // Draw status icons
+  drawStatusIcons();
 }
 
 void setup() {
@@ -99,9 +143,32 @@ void setup() {
   M5Dial.begin(cfg, true, false);              // initializes device and encoder
   M5Dial.Display.setTextDatum(middle_center);  // center text
   
+  // Initialize Serial for debugging
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("M5Stack Dial - Lavli Controller Starting...");
+  
   // Show startup screen
   drawStartupScreen();
   startupStartTime = millis();
+
+  // Initialize CAN communication
+  canInitialized = initializeCAN();
+  if (canInitialized) {
+    Serial.println("CAN communication ready");
+  } else {
+    Serial.println("CAN communication failed to initialize");
+  }
+
+  // Initialize provisioning
+  if (USE_BLE_PROVISIONING) {
+    Serial.println("Initializing BLE provisioning...");
+    initializeBLE();
+  }
+  
+  // Try to connect to WiFi
+  Serial.println("Setting up WiFi...");
+  setupWiFi();
 
   // Start encoder at 0 so modulo works cleanly
   M5Dial.Encoder.write(0);
@@ -120,6 +187,14 @@ void loop() {
     return; // Don't process encoder during startup
   }
 
+  // Process provisioning
+  processProvisioning();
+  
+  // Process CAN messages if initialized
+  if (canInitialized) {
+    processCANMessages();
+  }
+
   // Main screen encoder handling
   long enc = M5Dial.Encoder.read();
   if (enc != lastEnc) {
@@ -130,7 +205,26 @@ void loop() {
       currentMode = newMode;
       M5Dial.Speaker.tone(2400, 30);  // little tick
       drawUI(currentMode);
+      
+      // Send CAN command if mode changed and CAN is initialized
+      if (canInitialized && newMode != lastSentMode) {
+        if (newMode == MODE_WASH) {
+          sendWashCommand();
+        } else {
+          sendDryCommand();
+        }
+        lastSentMode = newMode;
+      }
     }
     lastEnc = enc;
+  }
+  
+  // Handle button press to send stop command
+  if (M5Dial.BtnA.wasPressed()) {
+    M5Dial.Speaker.tone(1800, 50);  // Different tone for button press
+    if (canInitialized) {
+      Serial.println("Button pressed - sending STOP command");
+      sendStopCommand();
+    }
   }
 }
