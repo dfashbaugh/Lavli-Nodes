@@ -17,9 +17,15 @@
 #define MOTOR_CONTROL_ADDRESS   0x311
 #define CONTROLLER_120V_ADDRESS 0x543
 
-// Command definitions (matching master node)
+// Command definitions for output control (matching master node)
 #define ACTIVATE_CMD   0x01
 #define DEACTIVATE_CMD 0x02
+
+// Sensor request command definitions
+#define READ_ANALOG_CMD       0x03
+#define READ_DIGITAL_CMD      0x04
+#define READ_ALL_ANALOG_CMD   0x05
+#define READ_ALL_DIGITAL_CMD  0x06
 
 // Motor command definitions
 #define MOTOR_SET_RPM_CMD     0x30
@@ -27,12 +33,20 @@
 #define MOTOR_STOP_CMD        0x32
 #define MOTOR_STATUS_CMD      0x33
 
+// Response command definitions
+#define ACK_ACTIVATE          0x10
+#define ACK_DEACTIVATE        0x11
+#define ANALOG_DATA           0x20
+#define DIGITAL_DATA          0x21
+#define ALL_ANALOG_DATA       0x22
+#define ALL_DIGITAL_DATA      0x23
+
 // Motor response definitions
-#define MOTOR_ACK_RPM         0x40
-#define MOTOR_ACK_DIRECTION   0x41
-#define MOTOR_ACK_STOP        0x42
-#define MOTOR_ACK_STATUS      0x43
-#define MOTOR_ERROR_RESPONSE  0xFF
+#define ACK_MOTOR_RPM         0x40
+#define ACK_MOTOR_DIRECTION   0x41
+#define ACK_MOTOR_STOP        0x42
+#define MOTOR_STATUS_DATA     0x43
+#define ERROR_RESPONSE        0xFF
 
 // Function declarations
 bool initializeCAN();
@@ -42,5 +56,17 @@ bool sendWashCommand();
 bool sendDryCommand();
 bool sendStopCommand();
 void processCANMessages();
+
+// Pin control functions (from master node)
+bool sendOutputCommand(uint16_t device_address, uint8_t command, uint8_t port);
+bool requestAnalogReading(uint16_t device_address, uint8_t pin);
+bool requestDigitalReading(uint16_t device_address, uint8_t pin);
+bool requestAllAnalogReadings(uint16_t device_address);
+bool requestAllDigitalReadings(uint16_t device_address);
+bool sendMotorRPM(uint16_t device_address, uint16_t rpm);
+bool sendMotorDirection(uint16_t device_address, bool clockwise);
+bool sendMotorStop(uint16_t device_address);
+bool requestMotorStatus(uint16_t device_address);
+bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length);
 
 #endif // CAN_COMM_H

@@ -15,6 +15,12 @@ const unsigned long STARTUP_DURATION = 3000; // 3 seconds
 bool canInitialized = false;
 
 void setup() {
+
+  // pinMode(GPIO_NUM_1, OUTPUT);
+  // pinMode(GPIO_NUM_2, OUTPUT);
+
+  // return;
+
   auto cfg = M5.config();
   // enableEncoder = true, enableRFID = false
   M5Dial.begin(cfg, true, false);              // initializes device and encoder
@@ -53,6 +59,19 @@ void setup() {
 }
 
 void loop() {
+
+  // digitalWrite(GPIO_NUM_1, HIGH);
+  // digitalWrite(GPIO_NUM_2, LOW);
+
+  // delay(10);
+
+  // digitalWrite(GPIO_NUM_1, LOW);
+  // digitalWrite(GPIO_NUM_2, HIGH);
+
+  // delay(10);
+
+  // return;
+
   M5Dial.update();  // required for input updates
 
   // Handle startup screen timing
@@ -101,7 +120,8 @@ void loop() {
     M5Dial.Speaker.tone(1800, 50);  // Different tone for button press
     if (canInitialized) {
       Serial.println("Button pressed - sending STOP command");
-      sendStopCommand();
+      // sendStopCommand();
+      sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 1); // Example: deactivate port 1
     }
   }
 }
