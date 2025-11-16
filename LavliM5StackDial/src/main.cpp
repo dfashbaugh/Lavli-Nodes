@@ -16,10 +16,15 @@ bool canInitialized = false;
 
 void setup() {
 
+  // GPIO TEST MODE - Comment out to run normal CAN code
   // pinMode(GPIO_NUM_1, OUTPUT);
   // pinMode(GPIO_NUM_2, OUTPUT);
-
-  // return;
+  // Serial.begin(115200);
+  // delay(1000);
+  // Serial.println("=== GPIO PIN TEST MODE ===");
+  // Serial.println("Testing GPIO1 and GPIO2...");
+  // Serial.println("Watch oscilloscope for square wave on GPIO1 (TX)");
+  // return;  // Stop here for pin testing
 
   auto cfg = M5.config();
   // enableEncoder = true, enableRFID = false
@@ -39,6 +44,16 @@ void setup() {
   canInitialized = initializeCAN();
   if (canInitialized) {
     Serial.println("CAN communication ready");
+
+    // Optional: Uncomment to send test messages on startup
+    /*
+    Serial.println("\n[TEST] Sending startup test messages...");
+    for (int i = 0; i < 5; i++) {
+      sendCANMessage(MOTOR_CONTROL_ADDRESS, MOTOR_SET_RPM_CMD, 50 + i * 10);
+      delay(200);
+    }
+    Serial.println("[TEST] Startup test complete\n");
+    */
   } else {
     Serial.println("CAN communication failed to initialize");
   }
@@ -48,7 +63,7 @@ void setup() {
     Serial.println("Initializing BLE provisioning...");
     initializeBLE();
   }
-  
+
   // Try to connect to WiFi
   Serial.println("Setting up WiFi...");
   setupWiFi();
@@ -60,17 +75,17 @@ void setup() {
 
 void loop() {
 
-  // digitalWrite(GPIO_NUM_1, HIGH);
-  // digitalWrite(GPIO_NUM_2, LOW);
-
-  // delay(10);
-
-  // digitalWrite(GPIO_NUM_1, LOW);
-  // digitalWrite(GPIO_NUM_2, HIGH);
-
-  // delay(10);
-
-  // return;
+  // CAN TEST MODE - Comment out to disable continuous testing
+  // Uncomment this block to continuously spam CAN messages for testing
+  /*
+  static unsigned long lastTestMsg = 0;
+  if (canInitialized && millis() - lastTestMsg > 500) {
+    Serial.println("\n[LOOP TEST] Sending test message...");
+    sendCANMessage(MOTOR_CONTROL_ADDRESS, MOTOR_SET_RPM_CMD, random(0, 100));
+    lastTestMsg = millis();
+  }
+  */
+  // END TEST MODE
 
   M5Dial.update();  // required for input updates
 

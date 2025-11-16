@@ -1,52 +1,174 @@
 #include "can_comm.h"
 
 // CAN Configuration structures
-static twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
-static twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();//CAN_BAUD_RATE;
+// NO_ACK mode: For testing without a CAN transceiver (loopback only)
+// NORMAL mode: For production with CAN transceiver connected
+// #define CAN_TEST_MODE TWAI_MODE_NO_ACK  // Change to TWAI_MODE_NORMAL when CAN transceiver connected
+#define CAN_TEST_MODE TWAI_MODE_NORMAL  // Change to TWAI_MODE_NORMAL when CAN transceiver connected
+
+
+// Configure with alerts enabled for debugging
+// Automatic bus recovery enabled to handle BUS_OFF errors
+static twai_general_config_t g_config = {
+  .mode = CAN_TEST_MODE,
+  .tx_io = CAN_TX_PIN,
+  .rx_io = CAN_RX_PIN,  // Keep RX pin enabled
+  .clkout_io = TWAI_IO_UNUSED,
+  .bus_off_io = TWAI_IO_UNUSED,
+  .tx_queue_len = 5,
+  .rx_queue_len = 5,
+  .alerts_enabled = TWAI_ALERT_TX_SUCCESS | TWAI_ALERT_TX_FAILED | TWAI_ALERT_ERR_PASS |
+                    TWAI_ALERT_BUS_ERROR | TWAI_ALERT_ARB_LOST | TWAI_ALERT_BUS_OFF,
+  .clkout_divider = 0,
+  .intr_flags = ESP_INTR_FLAG_LEVEL1
+};
+
+static twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 static twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 bool initializeCAN() {
-  Serial.println("[CAN] Initializing CAN communication...");
+  Serial.println("[CAN] ========================================");
+  Serial.println("[CAN] Initializing CAN/TWAI communication...");
   Serial.printf("[CAN] TX Pin: GPIO%d, RX Pin: GPIO%d\n", CAN_TX_PIN, CAN_RX_PIN);
-  
+  Serial.printf("[CAN] Mode: %s\n", (CAN_TEST_MODE == TWAI_MODE_NO_ACK) ? "NO_ACK (Test)" : "NORMAL");
+  Serial.printf("[CAN] Baud Rate: 500 kbps\n");
+
   // Install TWAI driver
-  if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK) {
-    Serial.println("[CAN] Failed to install TWAI driver");
+  Serial.println("[CAN] Installing TWAI driver...");
+  Serial.flush();
+  delay(10);
+
+  esp_err_t err = twai_driver_install(&g_config, &t_config, &f_config);
+
+  Serial.printf("[CAN] twai_driver_install returned: %s (0x%X)\n", esp_err_to_name(err), err);
+  Serial.flush();
+
+  if (err != ESP_OK) {
+    Serial.printf("[CAN] FAILED to install TWAI driver! Error: %s\n", esp_err_to_name(err));
+    Serial.flush();
     return false;
   }
-  
+  Serial.println("[CAN] TWAI driver installed successfully");
+  Serial.flush();
+  delay(10);
+
   // Start TWAI driver
-  if (twai_start() != ESP_OK) {
-    Serial.println("[CAN] Failed to start TWAI driver");
+  Serial.println("[CAN] Starting TWAI driver...");
+  Serial.flush();
+  delay(10);
+
+  err = twai_start();
+
+  Serial.printf("[CAN] twai_start returned: %s (0x%X)\n", esp_err_to_name(err), err);
+  Serial.flush();
+
+  if (err != ESP_OK) {
+    Serial.printf("[CAN] FAILED to start TWAI driver! Error: %s\n", esp_err_to_name(err));
+    Serial.flush();
     return false;
   }
-  
-  Serial.println("[CAN] CAN communication initialized successfully");
+  Serial.println("[CAN] TWAI driver started successfully");
+  Serial.flush();
+  delay(10);
+
+  // Check initial status
+  twai_status_info_t status;
+  if (twai_get_status_info(&status) == ESP_OK) {
+    Serial.println("[CAN] Initial TWAI Status:");
+    Serial.printf("[CAN]   State: %s\n",
+                  (status.state == TWAI_STATE_RUNNING) ? "RUNNING" :
+                  (status.state == TWAI_STATE_BUS_OFF) ? "BUS_OFF" :
+                  (status.state == TWAI_STATE_RECOVERING) ? "RECOVERING" : "STOPPED");
+    Serial.printf("[CAN]   TX Error Count: %d\n", status.tx_error_counter);
+    Serial.printf("[CAN]   RX Error Count: %d\n", status.rx_error_counter);
+  }
+
+  Serial.println("[CAN] ========================================");
+  Serial.println("[CAN] CAN communication initialized successfully!");
   return true;
 }
 
 bool sendCANMessage(uint16_t address, uint8_t command, uint8_t data) {
   twai_message_t message;
-  
+
   message.identifier = address;
   message.extd = 0;  // Standard frame format
   message.rtr = 0;   // Data frame
   message.data_length_code = 2;
   message.data[0] = command;
   message.data[1] = data;
-  
+
   // Clear unused data bytes
   for (int i = 2; i < 8; i++) {
     message.data[i] = 0;
   }
-  
+
+  Serial.printf("[CAN] >>> Attempting to send: Address=0x%03X, Cmd=0x%02X, Data=0x%02X\n",
+                address, command, data);
+
+  // Check alerts before sending
+  uint32_t alerts;
+  if (twai_read_alerts(&alerts, 0) == ESP_OK && alerts != 0) {
+    Serial.printf("[CAN] >>> Alerts before TX: 0x%08X\n", alerts);
+  }
+
   esp_err_t result = twai_transmit(&message, pdMS_TO_TICKS(1000));
+
+  // Check alerts after sending
+  if (twai_read_alerts(&alerts, pdMS_TO_TICKS(100)) == ESP_OK) {
+    if (alerts & TWAI_ALERT_TX_SUCCESS) {
+      Serial.println("[CAN] >>> ALERT: TX_SUCCESS");
+    }
+    if (alerts & TWAI_ALERT_TX_FAILED) {
+      Serial.println("[CAN] >>> ALERT: TX_FAILED");
+    }
+    if (alerts & TWAI_ALERT_ERR_PASS) {
+      Serial.println("[CAN] >>> ALERT: ERR_PASS (error passive state)");
+    }
+    if (alerts & TWAI_ALERT_BUS_ERROR) {
+      Serial.println("[CAN] >>> ALERT: BUS_ERROR");
+    }
+    if (alerts & TWAI_ALERT_ARB_LOST) {
+      Serial.println("[CAN] >>> ALERT: ARB_LOST (arbitration lost)");
+    }
+  }
+
   if (result == ESP_OK) {
-    Serial.printf("[CAN] Message sent - Address: 0x%03X, Command: 0x%02X, Data: 0x%02X\n", 
-                  address, command, data);
+    Serial.printf("[CAN] >>> SUCCESS! Message queued for transmission\n");
     return true;
   } else {
-    Serial.printf("[CAN] Failed to send message - Error: %s\n", esp_err_to_name(result));
+    Serial.printf("[CAN] >>> FAILED! Error: %s\n", esp_err_to_name(result));
+
+    // Check bus status on failure
+    twai_status_info_t status;
+    if (twai_get_status_info(&status) == ESP_OK) {
+      Serial.printf("[CAN] >>> Bus State: %s, TX_ERR: %d, RX_ERR: %d\n",
+                    (status.state == TWAI_STATE_RUNNING) ? "RUNNING" :
+                    (status.state == TWAI_STATE_BUS_OFF) ? "BUS_OFF" :
+                    (status.state == TWAI_STATE_RECOVERING) ? "RECOVERING" : "STOPPED",
+                    status.tx_error_counter, status.rx_error_counter);
+
+      // Automatic bus recovery if BUS_OFF
+      if (status.state == TWAI_STATE_BUS_OFF) {
+        Serial.println("[CAN] >>> Initiating bus recovery...");
+        if (twai_initiate_recovery() == ESP_OK) {
+          Serial.println("[CAN] >>> Bus recovery initiated successfully");
+          delay(50); // Give time for recovery
+
+          // Try the message again after recovery
+          Serial.println("[CAN] >>> Retrying message after recovery...");
+          result = twai_transmit(&message, pdMS_TO_TICKS(1000));
+          if (result == ESP_OK) {
+            Serial.println("[CAN] >>> Retry SUCCESS!");
+            return true;
+          } else {
+            Serial.printf("[CAN] >>> Retry FAILED: %s\n", esp_err_to_name(result));
+          }
+        } else {
+          Serial.println("[CAN] >>> Bus recovery failed!");
+        }
+      }
+    }
     return false;
   }
 }

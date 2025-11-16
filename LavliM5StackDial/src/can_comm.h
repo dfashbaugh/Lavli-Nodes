@@ -5,9 +5,24 @@
 #include <driver/twai.h>
 
 // CAN Pin Definitions for M5Stack Dial
-// Using PORT.B GPIO pins (GPIO1 and GPIO2 are available)
+// Using PORT.B GPIO pins (GPIO1 and GPIO2)
+//
+// FOR TESTING (NO TRANSCEIVER):
+//   - Connect GPIO1 to GPIO2 with a jumper wire for loopback testing
+//   - Set mode to TWAI_MODE_NO_ACK in can_comm.cpp
+//
+// FOR PRODUCTION (WITH CAN TRANSCEIVER):
+//   - Remove jumper wire between GPIO1 and GPIO2
+//   - Connect GPIO1 to transceiver CTX/TXD
+//   - Connect GPIO2 to transceiver CRX/RXD
+//   - Set mode to TWAI_MODE_NORMAL in can_comm.cpp
+//
 #define CAN_TX_PIN GPIO_NUM_1
 #define CAN_RX_PIN GPIO_NUM_2
+
+// Alternative pins if GPIO1/2 don't work (uncomment to try):
+// #define CAN_TX_PIN GPIO_NUM_15
+// #define CAN_RX_PIN GPIO_NUM_16
 
 // CAN Configuration
 #define CAN_BAUD_RATE TWAI_TIMING_CONFIG_500KBITS()
