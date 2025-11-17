@@ -5,7 +5,16 @@
 #include <M5Dial.h>
 
 // Mode enum (shared with main)
-enum Mode : int { MODE_WASH = 0, MODE_DRY = 1 };
+enum Mode : int { MODE_WASH = 0, MODE_DRY = 1, MODE_OPTIONS = 2 };
+
+// Screen enum (shared with main)
+enum Screen : int {
+    SCREEN_STARTUP = 0,
+    SCREEN_MAIN = 1,
+    SCREEN_OPTIONS = 2,
+    SCREEN_WASHING = 3,
+    SCREEN_DRYING = 4
+};
 
 // Color definitions
 #define COLOR_WHITE     0xFFFF
@@ -25,6 +34,9 @@ void drawBluetoothIcon(int x, int y, uint32_t color);
 void drawStatusIcons();
 void drawStartupScreen();
 void drawUI(Mode m);
+void drawOptionsScreen();
+void drawWashingScreen(unsigned long startTime);
+void drawDryingScreen(unsigned long startTime);
 
 // Utility functions
 void clearScreen();

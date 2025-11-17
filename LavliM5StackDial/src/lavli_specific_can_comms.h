@@ -34,16 +34,16 @@
 // 12v Board 2 0x223
 #define CONDENSOR_FANS_PORT 1
 #define CLEAN_WATER_PUMP_PORT 2
-#define SOLENOID_1_PORT 3 // TODO: Solenoid purpose TBD
+#define RO_BALL_VALVE_PORT 3
 
 // 120v Board 2 0x543
 #define HEATER_PORT 1
 #define HEATER_FANS_PORT 2
 
 // 12v Board 3 0x226
-#define SOLENOID_2_PORT 1 // TODO: Solenoid purpose TBD
-#define SOLENOID_4_PORT 2 // TODO: Solenoid purpose TBD
-#define SOLENOID_3_PORT 3 // TODO: Solenoid purpose TBD
+#define CLEAN_INLET_SOLENOID_PORT 1 
+#define RO_FLUSH_TO_PURGE_SOLENOID_PORT 2 
+#define RO_FLUSH_INLET_SOLENOID_PORT 3 
 
 // Sensor Node 2 0x128
 #define DIRTY_TANK_LOW_PIN 1 // GPIO 1
@@ -153,6 +153,34 @@ bool toggleCondenserFans(bool on);
  * @return true if command sent successfully
  */
 bool toggleCleanWaterPump(bool on);
+
+/**
+ * Toggle the RO ball valve on or off (12V Board 2, Port 3)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleROBallValve(bool on);
+
+/**
+ * Toggle the clean inlet solenoid on or off (12V Board 3, Port 1)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleCleanInletSolenoid(bool on);
+
+/**
+ * Toggle the RO flush to purge solenoid on or off (12V Board 3, Port 2)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleROFlushToPurgeSolenoid(bool on);
+
+/**
+ * Toggle the RO flush inlet solenoid on or off (12V Board 3, Port 3)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleROFlushInletSolenoid(bool on);
 
 // ============================================================================
 // 120V Controller Toggle Functions

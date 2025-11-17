@@ -80,38 +80,114 @@ void drawStartupScreen() {
   d.drawString("Lavli", cx, cy);
 }
 
-void drawWashingScreen() {
+void drawWashingScreen(unsigned long startTime) {
   auto& d = M5Dial.Display;
   d.clear();
-  
+
   // Get screen center
   int cx = d.width() / 2;
-  int cy = d.height() / 2;
-  
-  // Create a shiny gradient effect with multiple text layers
+  int cy = d.height() / 2 - 20;
+  int iconR = 30;
+
+  // Draw water drop icon
+  uint32_t c = d.color888(40, 200, 255);
+  drawWaterDrop(cx, cy, iconR, c);
+
+  // Main text
   d.setTextDatum(middle_center);
-  d.setTextSize(3);
-  
-  // Main text with gradient effect
-  d.setTextColor(COLOR_CYAN); // Cyan
-  d.drawString("Washing", cx, cy);
+  d.setTextSize(2);
+  d.setTextColor(COLOR_WHITE, COLOR_BLACK);
+  d.drawString("Washing", cx, cy + iconR + 20);
+
+  // Calculate elapsed time
+  unsigned long elapsed = (millis() - startTime) / 1000;  // seconds
+  unsigned long minutes = elapsed / 60;
+  unsigned long seconds = elapsed % 60;
+
+  // Format and display elapsed time
+  char timeStr[10];
+  sprintf(timeStr, "%02lu:%02lu", minutes, seconds);
+  d.setTextSize(2);
+  d.setTextColor(COLOR_CYAN, COLOR_BLACK);
+  d.drawString(timeStr, cx, cy + iconR + 50);
+
+  // Hint text
+  d.setTextSize(1);
+  d.setTextColor(COLOR_LIGHT_GRAY, COLOR_BLACK);
+  d.drawString("Press button to stop", cx, d.height() - 18);
+
+  // Draw status icons
+  drawStatusIcons();
 }
 
-void drawDryingScreen() {
+void drawDryingScreen(unsigned long startTime) {
   auto& d = M5Dial.Display;
   d.clear();
-  
+
   // Get screen center
   int cx = d.width() / 2;
-  int cy = d.height() / 2;
-  
-  // Create a shiny gradient effect with multiple text layers
+  int cy = d.height() / 2 - 20;
+  int iconR = 30;
+
+  // Draw sun icon
+  uint32_t c = d.color888(255, 210, 40);
+  drawSun(cx, cy, iconR, c);
+
+  // Main text
+  d.setTextDatum(middle_center);
+  d.setTextSize(2);
+  d.setTextColor(COLOR_WHITE, COLOR_BLACK);
+  d.drawString("Drying", cx, cy + iconR + 20);
+
+  // Calculate elapsed time
+  unsigned long elapsed = (millis() - startTime) / 1000;  // seconds
+  unsigned long minutes = elapsed / 60;
+  unsigned long seconds = elapsed % 60;
+
+  // Format and display elapsed time
+  char timeStr[10];
+  sprintf(timeStr, "%02lu:%02lu", minutes, seconds);
+  d.setTextSize(2);
+  d.setTextColor(COLOR_CYAN, COLOR_BLACK);
+  d.drawString(timeStr, cx, cy + iconR + 50);
+
+  // Hint text
+  d.setTextSize(1);
+  d.setTextColor(COLOR_LIGHT_GRAY, COLOR_BLACK);
+  d.drawString("Press button to stop", cx, d.height() - 18);
+
+  // Draw status icons
+  drawStatusIcons();
+}
+
+void drawOptionsScreen() {
+  auto& d = M5Dial.Display;
+  d.clear();
+
+  // Get screen center
+  int cx = d.width() / 2;
+  int cy = d.height() / 2 - 10;
+
+  // Main text
   d.setTextDatum(middle_center);
   d.setTextSize(3);
-  
-  // Main text with gradient effect
-  d.setTextColor(COLOR_CYAN); // Cyan
-  d.drawString("Drying", cx, cy);
+  d.setTextColor(COLOR_WHITE, COLOR_BLACK);
+  d.drawString("*", cx, cy - 20);  // Gear placeholder
+
+  d.setTextSize(2);
+  d.drawString("Options", cx, cy + 20);
+
+  d.setTextSize(1);
+  d.setTextColor(COLOR_LIGHT_GRAY, COLOR_BLACK);
+  d.drawString("Coming Soon", cx, cy + 50);
+
+  // Hint text
+  d.setTextSize(1);
+  d.setTextColor(COLOR_LIGHT_GRAY, COLOR_BLACK);
+  d.drawString("Press to return", cx, d.height() - 18);
+
+  // Draw status icons
+  drawStatusIcons();
 }
 
 void drawUI(Mode m) {
@@ -133,18 +209,24 @@ void drawUI(Mode m) {
     uint32_t c = d.color888(40, 200, 255);
     drawWaterDrop(cx, cy, iconR, c);
     d.drawString("Wash", cx, cy + iconR + 28);
-  } else {
+  } else if (m == MODE_DRY) {
     // sun: yellow
     uint32_t c = d.color888(255, 210, 40);
     drawSun(cx, cy, iconR, c);
     d.drawString("Dry", cx, cy + iconR + 28);
+  } else if (m == MODE_OPTIONS) {
+    // gear/settings icon: white
+    d.setTextSize(3);
+    d.drawString("*", cx, cy);  // Gear placeholder (use * for now)
+    d.setTextSize(2);
+    d.drawString("Options", cx, cy + iconR + 28);
   }
 
   // hint text
   d.setTextSize(1);
   d.setTextColor(COLOR_LIGHT_GRAY, COLOR_BLACK);
-  d.drawString("Turn dial to switch", cx, d.height() - 18);
-  
+  d.drawString("Turn dial • Press to select", cx, d.height() - 18);
+
   // Draw status icons
   drawStatusIcons();
 }

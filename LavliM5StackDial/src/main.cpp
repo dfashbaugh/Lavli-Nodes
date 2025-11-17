@@ -7,14 +7,15 @@
 #include "api_client.h"
 #include "config.h"
 #include "mac_utils.h"
-enum Screen : int { SCREEN_STARTUP = 0, SCREEN_MAIN = 1 };
 
+// Screen and mode state variables
 long lastEnc = LONG_MIN;
 Mode currentMode = MODE_WASH;
 Mode lastSentMode = MODE_DRY; // Initialize to opposite so first selection sends command
 Screen currentScreen = SCREEN_STARTUP;
 unsigned long startupStartTime = 0;
 const unsigned long STARTUP_DURATION = 3000; // 3 seconds
+unsigned long cycleStartTime = 0; // Track when wash/dry cycle started
 
 // CAN communication variables
 bool canInitialized = false;
@@ -23,6 +24,13 @@ bool canInitialized = false;
 bool mqttInitialized = false;
 bool apiInitialized = false;
 MachineStatus currentMachineStatus = MACHINE_IDLE;
+
+// Forward declarations
+void stopAll();
+void startWashCycle();
+void startDryCycle();
+void doWash();
+void doDry();
 
 void setup() {
 
@@ -108,20 +116,8 @@ void setup() {
   lastEnc = 0;
 }
 
-void loop() {
-
-  // CAN TEST MODE - Comment out to disable continuous testing
-  // Uncomment this block to continuously spam CAN messages for testing
-  /*
-  static unsigned long lastTestMsg = 0;
-  if (canInitialized && millis() - lastTestMsg > 500) {
-    Serial.println("\n[LOOP TEST] Sending test message...");
-    sendCANMessage(MOTOR_CONTROL_ADDRESS, MOTOR_SET_RPM_CMD, random(0, 100));
-    lastTestMsg = millis();
-  }
-  */
-  // END TEST MODE
-
+void alwaysRunMainLoopTasks()
+{
   M5Dial.update();  // required for input updates
 
   // Handle startup screen timing
@@ -153,41 +149,21 @@ void loop() {
     if (dryCommand.received) {
       Serial.println("Processing DRY command from MQTT");
       currentMode = MODE_DRY;
-      currentMachineStatus = MACHINE_DRYING;
-      drawUI(currentMode);
-
-      // Send CAN command if needed
-      if (canInitialized) {
-        // sendDryCommand(); // Uncomment when CAN commands are defined
-      }
-
+      startDryCycle();  // Start dry cycle with screen update
       clearMQTTCommand(&dryCommand);
     }
 
     if (washCommand.received) {
       Serial.println("Processing WASH command from MQTT");
       currentMode = MODE_WASH;
-      currentMachineStatus = MACHINE_WASHING;
-      drawUI(currentMode);
-
-      // Send CAN command if needed
-      if (canInitialized) {
-        // sendWashCommand(); // Uncomment when CAN commands are defined
-      }
-
+      startWashCycle();  // Start wash cycle with screen update
       clearMQTTCommand(&washCommand);
     }
 
     if (stopCommand.received) {
       Serial.println("Processing STOP command from MQTT");
-      currentMachineStatus = MACHINE_IDLE;
       setMachineStatusMessage("Stopped via MQTT");
-
-      // Send CAN stop command if needed
-      if (canInitialized) {
-        // sendStopCommand(); // Uncomment when CAN commands are defined
-      }
-
+      stopAll();  // Stop all and return to main screen
       clearMQTTCommand(&stopCommand);
     }
   }
@@ -211,39 +187,211 @@ void loop() {
     receiveCANMessages();
   }
 
-  // Main screen encoder handling
-  long enc = M5Dial.Encoder.read();
-  if (enc != lastEnc) {
-    // Require 4 encoder counts to switch modes (better detent alignment)
-    int idx = (int)((enc / 4 % 2 + 2) % 2);  // 0 or 1, handles negatives, divides by 4
-    Mode newMode = (idx == 0) ? MODE_WASH : MODE_DRY;
-    if (newMode != currentMode) {
-      currentMode = newMode;
-      M5Dial.Speaker.tone(2400, 30);  // little tick
-      drawUI(currentMode);
-      
-      // Send CAN command if mode changed and CAN is initialized
-      // if (canInitialized && newMode != lastSentMode) {
-      //   // if (newMode == MODE_WASH) {
-      //   //   sendWashCommand();
-      //   // } else {
-      //   //   sendDryCommand();
-      //   // }
-      //   lastSentMode = newMode;
-      // }
-    }
-    lastEnc = enc;
-  }
-  
-  // Handle button press to send stop command
+  // Handle button press based on current screen
   if (M5Dial.BtnA.wasPressed()) {
     M5Dial.Speaker.tone(1800, 50);  // Different tone for button press
-    if (canInitialized) {
-      Serial.println("Button pressed - sending STOP command");
-      // sendStopCommand();
-      // sendOutputCommand(CONTROLLER_12V_1_ADDRESS, DEACTIVATE_CMD, 1); // Example: deactivate port 1
-      // setMotorRPM(0);
-      // requestCleanTankHighWaterSensor();
+
+    if (currentScreen == SCREEN_MAIN) {
+      // Start selected cycle or show options
+      if (currentMode == MODE_WASH) {
+        Serial.println("Button pressed - starting WASH cycle");
+        startWashCycle();
+      } else if (currentMode == MODE_DRY) {
+        Serial.println("Button pressed - starting DRY cycle");
+        startDryCycle();
+      } else if (currentMode == MODE_OPTIONS) {
+        Serial.println("Button pressed - showing OPTIONS");
+        currentScreen = SCREEN_OPTIONS;
+        drawOptionsScreen();
+      }
+    } else if (currentScreen == SCREEN_WASHING || currentScreen == SCREEN_DRYING) {
+      // Stop active cycle
+      Serial.println("Button pressed - stopping cycle");
+      stopAll();
+    } else if (currentScreen == SCREEN_OPTIONS) {
+      // Return to main screen
+      Serial.println("Button pressed - returning to main screen");
+      currentScreen = SCREEN_MAIN;
+      drawUI(currentMode);
+    }
+  }
+
+  // Update active cycle screens periodically (every 1 second)
+  static unsigned long lastScreenUpdate = 0;
+  if ((currentScreen == SCREEN_WASHING || currentScreen == SCREEN_DRYING) &&
+      millis() - lastScreenUpdate > 1000) {
+    lastScreenUpdate = millis();
+    if (currentScreen == SCREEN_WASHING) {
+      drawWashingScreen(cycleStartTime);
+    } else {
+      drawDryingScreen(cycleStartTime);
+    }
+  }
+}
+
+void nonBlockingDelay(unsigned long ms)
+{
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    alwaysRunMainLoopTasks();
+    delay(1); // Small delay to prevent watchdog resets
+  }
+}
+
+void stopAll()
+{
+  Serial.println("Stopping all operations");
+
+  // Stop all CAN devices
+  if (canInitialized) {
+    setMotorRPM(0);
+    toggleHeater(false);
+    togglePeristalticPump(false);
+    toggleDrainPump(false);
+    toggleOzoneGenerator(false);
+    toggleCondenserFans(false);
+    toggleCleanWaterPump(false);
+    toggleVanePump(false);
+    toggleHeaterFans(false);
+    toggleROBallValve(false);
+    toggleCleanInletSolenoid(false);
+    toggleROFlushToPurgeSolenoid(false);
+    toggleROFlushInletSolenoid(false);
+  }
+
+  // Update status
+  currentMachineStatus = MACHINE_IDLE;
+  cycleStartTime = 0;
+
+  // Return to selection screen (stay on last selected mode)
+  currentScreen = SCREEN_MAIN;
+  drawUI(currentMode);
+}
+
+void doDry()
+{
+  Serial.println("Starting Dry Cycle - User Implementation");
+  // TODO: User to implement dry cycle CAN commands
+  // Example:
+  // setMotorRPM(100);
+  // toggleHeater(true);
+  // toggleCondenserFans(true);
+}
+
+void doWash()
+{
+  Serial.println("Starting Wash Cycle - User Implementation");
+  // TODO: User to implement wash cycle CAN commands
+  // Example:
+  // setMotorRPM(50);
+  // toggleCleanWaterPump(true);
+  // togglePeristalticPump(true);
+
+  toggleCleanWaterPump(true);
+  toggleCleanInletSolenoid(true);
+
+  nonBlockingDelay(3000); 
+
+  togglePeristalticPump(true);
+
+  nonBlockingDelay(2000);
+
+  togglePeristalticPump(false);
+
+  nonBlockingDelay(2000);
+
+  setMotorRPM(25);
+
+  nonBlockingDelay(5000);
+
+  toggleCleanWaterPump(false);
+  toggleCleanInletSolenoid(false);
+
+  nonBlockingDelay(2000);
+
+  setMotorRPM(100);
+
+  nonBlockingDelay(5000);
+
+  setMotorRPM(25);
+
+  nonBlockingDelay(2000);
+
+  setMotorRPM(0);
+
+  Serial.println("Wash Cycle Complete");
+
+  stopAll();
+  currentScreen = SCREEN_MAIN;
+}
+
+void startWashCycle()
+{
+  Serial.println("Starting Wash Cycle");
+  cycleStartTime = millis();
+  currentMachineStatus = MACHINE_WASHING;
+  currentScreen = SCREEN_WASHING;
+  drawWashingScreen(cycleStartTime);
+
+  // Call user-defined wash cycle logic
+  doWash();
+}
+
+void startDryCycle()
+{
+  Serial.println("Starting Dry Cycle");
+  cycleStartTime = millis();
+  currentMachineStatus = MACHINE_DRYING;
+  currentScreen = SCREEN_DRYING;
+  drawDryingScreen(cycleStartTime);
+
+  // Call user-defined dry cycle logic
+  doDry();
+}
+
+
+
+
+
+
+
+void loop() {
+
+  // CAN TEST MODE - Comment out to disable continuous testing
+  // Uncomment this block to continuously spam CAN messages for testing
+  /*
+  static unsigned long lastTestMsg = 0;
+  if (canInitialized && millis() - lastTestMsg > 500) {
+    Serial.println("\n[LOOP TEST] Sending test message...");
+    sendCANMessage(MOTOR_CONTROL_ADDRESS, MOTOR_SET_RPM_CMD, random(0, 100));
+    lastTestMsg = millis();
+  }
+  */
+  // END TEST MODE
+
+  alwaysRunMainLoopTasks();
+
+  // Main screen encoder handling (only on SCREEN_MAIN)
+  if (currentScreen == SCREEN_MAIN) {
+    long enc = M5Dial.Encoder.read();
+    if (enc != lastEnc) {
+      // Require 4 encoder counts to switch modes (better detent alignment)
+      int idx = (int)((enc / 4 % 3 + 3) % 3);  // 0, 1, or 2, handles negatives, divides by 4
+      Mode newMode;
+      if (idx == 0) {
+        newMode = MODE_WASH;
+      } else if (idx == 1) {
+        newMode = MODE_DRY;
+      } else {
+        newMode = MODE_OPTIONS;
+      }
+
+      if (newMode != currentMode) {
+        currentMode = newMode;
+        M5Dial.Speaker.tone(2400, 30);  // little tick
+        drawUI(currentMode);
+      }
+      lastEnc = enc;
     }
   }
 }

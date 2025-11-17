@@ -246,6 +246,74 @@ bool toggleCleanWaterPump(bool on) {
     return success;
 }
 
+bool toggleROBallValve(bool on) {
+    uint8_t command = on ? ACTIVATE_CMD : DEACTIVATE_CMD;
+
+    Serial.printf("[Lavli] %s RO ball valve (12V Board 2, port %d)\n",
+                  on ? "Activating" : "Deactivating", RO_BALL_VALVE_PORT);
+
+    bool success = sendOutputCommand(CONTROLLER_12V_2_ADDRESS, command, RO_BALL_VALVE_PORT);
+
+    if (success) {
+        Serial.println("[Lavli] RO ball valve command sent successfully");
+    } else {
+        Serial.println("[Lavli] Failed to send RO ball valve command");
+    }
+
+    return success;
+}
+
+bool toggleCleanInletSolenoid(bool on) {
+    uint8_t command = on ? ACTIVATE_CMD : DEACTIVATE_CMD;
+
+    Serial.printf("[Lavli] %s clean inlet solenoid (12V Board 3, port %d)\n",
+                  on ? "Activating" : "Deactivating", CLEAN_INLET_SOLENOID_PORT);
+
+    bool success = sendOutputCommand(CONTROLLER_12V_3_ADDRESS, command, CLEAN_INLET_SOLENOID_PORT);
+
+    if (success) {
+        Serial.println("[Lavli] Clean inlet solenoid command sent successfully");
+    } else {
+        Serial.println("[Lavli] Failed to send clean inlet solenoid command");
+    }
+
+    return success;
+}
+
+bool toggleROFlushToPurgeSolenoid(bool on) {
+    uint8_t command = on ? ACTIVATE_CMD : DEACTIVATE_CMD;
+
+    Serial.printf("[Lavli] %s RO flush to purge solenoid (12V Board 3, port %d)\n",
+                  on ? "Activating" : "Deactivating", RO_FLUSH_TO_PURGE_SOLENOID_PORT);
+
+    bool success = sendOutputCommand(CONTROLLER_12V_3_ADDRESS, command, RO_FLUSH_TO_PURGE_SOLENOID_PORT);
+
+    if (success) {
+        Serial.println("[Lavli] RO flush to purge solenoid command sent successfully");
+    } else {
+        Serial.println("[Lavli] Failed to send RO flush to purge solenoid command");
+    }
+
+    return success;
+}
+
+bool toggleROFlushInletSolenoid(bool on) {
+    uint8_t command = on ? ACTIVATE_CMD : DEACTIVATE_CMD;
+
+    Serial.printf("[Lavli] %s RO flush inlet solenoid (12V Board 3, port %d)\n",
+                  on ? "Activating" : "Deactivating", RO_FLUSH_INLET_SOLENOID_PORT);
+
+    bool success = sendOutputCommand(CONTROLLER_12V_3_ADDRESS, command, RO_FLUSH_INLET_SOLENOID_PORT);
+
+    if (success) {
+        Serial.println("[Lavli] RO flush inlet solenoid command sent successfully");
+    } else {
+        Serial.println("[Lavli] Failed to send RO flush inlet solenoid command");
+    }
+
+    return success;
+}
+
 // ============================================================================
 // 120V Controller Toggle Functions
 // ============================================================================
