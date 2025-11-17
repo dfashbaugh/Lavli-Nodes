@@ -11,7 +11,7 @@ bool toggleDryer(bool on) {
     Serial.printf("[Lavli] %s dryer (port %d)\n",
                   on ? "Activating" : "Deactivating", DRYER_PORT);
 
-    bool success = sendOutputCommand(CONTROLLER_120V_ADDRESS, command, DRYER_PORT);
+    bool success = sendOutputCommand(CONTROLLER_120V_1_ADDRESS, command, DRYER_PORT);
 
     if (success) {
         Serial.println("[Lavli] Dryer command sent successfully");
@@ -80,7 +80,7 @@ bool setMotorRPM(int rpm) {
 
 bool requestCleanTankLowWaterSensor() {
     Serial.println("[Lavli] Requesting clean tank LOW water sensor");
-    bool success = requestDigitalReading(SENSOR_NODE_ADDRESS, CLEAN_TANK_LOW_PIN);
+    bool success = requestDigitalReading(SENSOR_NODE_1_ADDRESS, CLEAN_TANK_LOW_PIN);
 
     if (!success) {
         Serial.println("[Lavli] Failed to request low water sensor");
@@ -91,7 +91,7 @@ bool requestCleanTankLowWaterSensor() {
 
 bool requestCleanTankMidWaterSensor() {
     Serial.println("[Lavli] Requesting clean tank MID water sensor");
-    bool success = requestDigitalReading(SENSOR_NODE_ADDRESS, CLEAN_TANK_MID_PIN);
+    bool success = requestDigitalReading(SENSOR_NODE_1_ADDRESS, CLEAN_TANK_MID_PIN);
 
     if (!success) {
         Serial.println("[Lavli] Failed to request mid water sensor");
@@ -102,7 +102,7 @@ bool requestCleanTankMidWaterSensor() {
 
 bool requestCleanTankHighWaterSensor() {
     Serial.println("[Lavli] Requesting clean tank HIGH water sensor");
-    bool success = requestDigitalReading(SENSOR_NODE_ADDRESS, CLEAN_TANK_HIGH_PIN);
+    bool success = requestDigitalReading(SENSOR_NODE_1_ADDRESS, CLEAN_TANK_HIGH_PIN);
 
     if (!success) {
         Serial.println("[Lavli] Failed to request high water sensor");
@@ -116,7 +116,7 @@ bool requestCleanTankHighWaterSensor() {
 // ============================================================================
 
 SensorReading getCleanTankLowWaterSensor() {
-    SensorReading reading = getDigitalReading(SENSOR_NODE_ADDRESS, CLEAN_TANK_LOW_PIN);
+    SensorReading reading = getDigitalReading(SENSOR_NODE_1_ADDRESS, CLEAN_TANK_LOW_PIN);
 
     if (reading.valid) {
         unsigned long age = millis() - reading.timestamp;
@@ -130,7 +130,7 @@ SensorReading getCleanTankLowWaterSensor() {
 }
 
 SensorReading getCleanTankMidWaterSensor() {
-    SensorReading reading = getDigitalReading(SENSOR_NODE_ADDRESS, CLEAN_TANK_MID_PIN);
+    SensorReading reading = getDigitalReading(SENSOR_NODE_1_ADDRESS, CLEAN_TANK_MID_PIN);
 
     if (reading.valid) {
         unsigned long age = millis() - reading.timestamp;
@@ -144,7 +144,7 @@ SensorReading getCleanTankMidWaterSensor() {
 }
 
 SensorReading getCleanTankHighWaterSensor() {
-    SensorReading reading = getDigitalReading(SENSOR_NODE_ADDRESS, CLEAN_TANK_HIGH_PIN);
+    SensorReading reading = getDigitalReading(SENSOR_NODE_1_ADDRESS, CLEAN_TANK_HIGH_PIN);
 
     if (reading.valid) {
         unsigned long age = millis() - reading.timestamp;

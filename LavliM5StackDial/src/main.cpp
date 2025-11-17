@@ -241,7 +241,8 @@ void loop() {
     if (canInitialized) {
       Serial.println("Button pressed - sending STOP command");
       // sendStopCommand();
-      sendOutputCommand(CONTROLLER_120V_ADDRESS, DEACTIVATE_CMD, 1); // Example: deactivate port 1
+      // sendOutputCommand(CONTROLLER_12V_1_ADDRESS, DEACTIVATE_CMD, 1); // Example: deactivate port 1
+      setMotorRPM(25);
     }
   }
 }

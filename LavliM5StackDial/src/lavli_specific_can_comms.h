@@ -4,10 +4,15 @@
 #include "can_comm.h"
 
 // CAN Node Addresses (matching master node)
-#define MASTER_NODE_ADDRESS     0x300
+// #define MASTER_NODE_ADDRESS     0x300
 #define MOTOR_CONTROL_ADDRESS   0x311
-#define CONTROLLER_120V_ADDRESS 0x543
-#define SENSOR_NODE_ADDRESS     0x124  // Updated to match actual sensor node
+#define CONTROLLER_120V_1_ADDRESS 0x540
+#define CONTROLLER_120V_2_ADDRESS 0x543
+#define CONTROLLER_12V_1_ADDRESS 0x220
+#define CONTROLLER_12V_2_ADDRESS 0x223
+#define CONTROLLER_12V_3_ADDRESS 0x226
+#define SENSOR_NODE_1_ADDRESS     0x124  // Updated to match actual sensor node
+#define SENSOR_NODE_2_ADDRESS 0x128
 
 // Clean Tank Water Level Sensor Pin Definitions
 #define CLEAN_TANK_LOW_PIN      0  // Digital pin 0 - Low water level
