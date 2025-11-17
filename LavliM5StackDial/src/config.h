@@ -37,16 +37,18 @@
 enum MachineStatus {
     MACHINE_IDLE = 0,
     MACHINE_WASHING = 1,
-    MACHINE_DRYING = 2
+    MACHINE_DRYING = 2,
+    MACHINE_RECYCLING = 3
 };
 
 // Convert MachineStatus enum to string for API
 inline const char* machineStatusToString(MachineStatus status) {
     switch (status) {
-        case MACHINE_IDLE:    return "IDLE";
-        case MACHINE_WASHING: return "WASHING";
-        case MACHINE_DRYING:  return "DRYING";
-        default:              return "IDLE";
+        case MACHINE_IDLE:      return "IDLE";
+        case MACHINE_WASHING:   return "WASHING";
+        case MACHINE_DRYING:    return "DRYING";
+        case MACHINE_RECYCLING: return "RECYCLING";
+        default:                return "IDLE";
     }
 }
 

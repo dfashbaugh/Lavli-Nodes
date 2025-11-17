@@ -27,6 +27,53 @@ void drawSun(int cx, int cy, int r, uint32_t color) {
   }
 }
 
+void drawRecycleSymbol(int cx, int cy, int r, uint32_t color) {
+  // Draw 3 curved arrows in a triangular formation (recycle symbol)
+  // Simplified as 3 triangular arrows pointing clockwise around center
+
+  // Arrow 1 (top) - pointing right
+  int arrow1_x = cx;
+  int arrow1_y = cy - r;
+  M5Dial.Display.fillTriangle(
+    arrow1_x - r/2, arrow1_y - r/3,
+    arrow1_x + r/2, arrow1_y - r/3,
+    arrow1_x + r/2, arrow1_y + r/3,
+    color);
+  M5Dial.Display.fillTriangle(
+    arrow1_x + r/2, arrow1_y - r/2,
+    arrow1_x + r/2 + r/3, arrow1_y,
+    arrow1_x + r/2, arrow1_y + r/2,
+    color);
+
+  // Arrow 2 (bottom-left) - pointing up-right
+  int arrow2_x = cx - r * 0.866; // cos(60°) * r
+  int arrow2_y = cy + r * 0.5;   // sin(60°) * r
+  M5Dial.Display.fillTriangle(
+    arrow2_x - r/3, arrow2_y + r/2,
+    arrow2_x + r/3, arrow2_y + r/2,
+    arrow2_x, arrow2_y - r/2,
+    color);
+  M5Dial.Display.fillTriangle(
+    arrow2_x - r/2, arrow2_y - r/2,
+    arrow2_x, arrow2_y - r/2 - r/3,
+    arrow2_x + r/2, arrow2_y - r/2,
+    color);
+
+  // Arrow 3 (bottom-right) - pointing up-left
+  int arrow3_x = cx + r * 0.866;
+  int arrow3_y = cy + r * 0.5;
+  M5Dial.Display.fillTriangle(
+    arrow3_x - r/3, arrow3_y + r/2,
+    arrow3_x + r/3, arrow3_y + r/2,
+    arrow3_x, arrow3_y - r/2,
+    color);
+  M5Dial.Display.fillTriangle(
+    arrow3_x - r/2, arrow3_y - r/2,
+    arrow3_x, arrow3_y - r/2 - r/3,
+    arrow3_x + r/2, arrow3_y - r/2,
+    color);
+}
+
 void drawWiFiIcon(int x, int y, uint32_t color) {
   auto& d = M5Dial.Display;
   // Draw WiFi signal bars
@@ -160,6 +207,46 @@ void drawDryingScreen(unsigned long startTime) {
   drawStatusIcons();
 }
 
+void drawRecyclingScreen(unsigned long startTime) {
+  auto& d = M5Dial.Display;
+  d.clear();
+
+  // Get screen center
+  int cx = d.width() / 2;
+  int cy = d.height() / 2 - 20;
+  int iconR = 30;
+
+  // Draw recycle symbol (green)
+  uint32_t c = d.color888(40, 255, 100);
+  drawRecycleSymbol(cx, cy, iconR, c);
+
+  // Main text
+  d.setTextDatum(middle_center);
+  d.setTextSize(2);
+  d.setTextColor(COLOR_WHITE, COLOR_BLACK);
+  d.drawString("Recycling", cx, cy + iconR + 20);
+
+  // Calculate elapsed time
+  unsigned long elapsed = (millis() - startTime) / 1000;  // seconds
+  unsigned long minutes = elapsed / 60;
+  unsigned long seconds = elapsed % 60;
+
+  // Format and display elapsed time
+  char timeStr[10];
+  sprintf(timeStr, "%02lu:%02lu", minutes, seconds);
+  d.setTextSize(2);
+  d.setTextColor(COLOR_CYAN, COLOR_BLACK);
+  d.drawString(timeStr, cx, cy + iconR + 50);
+
+  // Hint text
+  d.setTextSize(1);
+  d.setTextColor(COLOR_LIGHT_GRAY, COLOR_BLACK);
+  d.drawString("Press button to stop", cx, d.height() - 18);
+
+  // Draw status icons
+  drawStatusIcons();
+}
+
 void drawOptionsScreen() {
   auto& d = M5Dial.Display;
   d.clear();
@@ -214,6 +301,11 @@ void drawUI(Mode m) {
     uint32_t c = d.color888(255, 210, 40);
     drawSun(cx, cy, iconR, c);
     d.drawString("Dry", cx, cy + iconR + 28);
+  } else if (m == MODE_RECYCLE) {
+    // recycle: green
+    uint32_t c = d.color888(40, 255, 100);
+    drawRecycleSymbol(cx, cy, iconR, c);
+    d.drawString("Recycle", cx, cy + iconR + 28);
   } else if (m == MODE_OPTIONS) {
     // gear/settings icon: white
     d.setTextSize(3);

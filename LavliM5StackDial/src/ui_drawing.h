@@ -5,7 +5,7 @@
 #include <M5Dial.h>
 
 // Mode enum (shared with main)
-enum Mode : int { MODE_WASH = 0, MODE_DRY = 1, MODE_OPTIONS = 2 };
+enum Mode : int { MODE_WASH = 0, MODE_DRY = 1, MODE_RECYCLE = 2, MODE_OPTIONS = 3 };
 
 // Screen enum (shared with main)
 enum Screen : int {
@@ -13,7 +13,8 @@ enum Screen : int {
     SCREEN_MAIN = 1,
     SCREEN_OPTIONS = 2,
     SCREEN_WASHING = 3,
-    SCREEN_DRYING = 4
+    SCREEN_DRYING = 4,
+    SCREEN_RECYCLING = 5
 };
 
 // Color definitions
@@ -27,6 +28,7 @@ enum Screen : int {
 // Icon drawing functions
 void drawWaterDrop(int cx, int cy, int r, uint32_t color);
 void drawSun(int cx, int cy, int r, uint32_t color);
+void drawRecycleSymbol(int cx, int cy, int r, uint32_t color);
 void drawWiFiIcon(int x, int y, uint32_t color);
 void drawBluetoothIcon(int x, int y, uint32_t color);
 
@@ -37,6 +39,7 @@ void drawUI(Mode m);
 void drawOptionsScreen();
 void drawWashingScreen(unsigned long startTime);
 void drawDryingScreen(unsigned long startTime);
+void drawRecyclingScreen(unsigned long startTime);
 
 // Utility functions
 void clearScreen();

@@ -29,8 +29,10 @@ MachineStatus currentMachineStatus = MACHINE_IDLE;
 void stopAll();
 void startWashCycle();
 void startDryCycle();
+void startRecycleCycle();
 void doWash();
 void doDry();
+void doRecycle();
 
 void setup() {
 
@@ -199,12 +201,15 @@ void alwaysRunMainLoopTasks()
       } else if (currentMode == MODE_DRY) {
         Serial.println("Button pressed - starting DRY cycle");
         startDryCycle();
+      } else if (currentMode == MODE_RECYCLE) {
+        Serial.println("Button pressed - starting RECYCLE cycle");
+        startRecycleCycle();
       } else if (currentMode == MODE_OPTIONS) {
         Serial.println("Button pressed - showing OPTIONS");
         currentScreen = SCREEN_OPTIONS;
         drawOptionsScreen();
       }
-    } else if (currentScreen == SCREEN_WASHING || currentScreen == SCREEN_DRYING) {
+    } else if (currentScreen == SCREEN_WASHING || currentScreen == SCREEN_DRYING || currentScreen == SCREEN_RECYCLING) {
       // Stop active cycle
       Serial.println("Button pressed - stopping cycle");
       stopAll();
@@ -218,13 +223,15 @@ void alwaysRunMainLoopTasks()
 
   // Update active cycle screens periodically (every 1 second)
   static unsigned long lastScreenUpdate = 0;
-  if ((currentScreen == SCREEN_WASHING || currentScreen == SCREEN_DRYING) &&
+  if ((currentScreen == SCREEN_WASHING || currentScreen == SCREEN_DRYING || currentScreen == SCREEN_RECYCLING) &&
       millis() - lastScreenUpdate > 1000) {
     lastScreenUpdate = millis();
     if (currentScreen == SCREEN_WASHING) {
       drawWashingScreen(cycleStartTime);
-    } else {
+    } else if (currentScreen == SCREEN_DRYING) {
       drawDryingScreen(cycleStartTime);
+    } else {
+      drawRecyclingScreen(cycleStartTime);
     }
   }
 }
@@ -380,6 +387,23 @@ void doWash()
   currentScreen = SCREEN_MAIN;
 }
 
+void doRecycle()
+{
+  Serial.println("Starting Recycle Cycle - User Implementation");
+  // TODO: User to implement recycle cycle CAN commands
+  // Example:
+  // setMotorRPM(75);
+  // toggleCleanWaterPump(true);
+  // togglePeristalticPump(true);
+  // nonBlockingDelay(10000);
+  // ...
+
+  nonBlockingDelay(5000);
+
+  stopAll();
+  currentScreen = SCREEN_MAIN;
+}
+
 void startWashCycle()
 {
   Serial.println("Starting Wash Cycle");
@@ -404,10 +428,17 @@ void startDryCycle()
   doDry();
 }
 
+void startRecycleCycle()
+{
+  Serial.println("Starting Recycle Cycle");
+  cycleStartTime = millis();
+  currentMachineStatus = MACHINE_RECYCLING;
+  currentScreen = SCREEN_RECYCLING;
+  drawRecyclingScreen(cycleStartTime);
 
-
-
-
+  // Call user-defined recycle cycle logic
+  doRecycle();
+}
 
 
 void loop() {
@@ -431,12 +462,14 @@ void loop() {
     long enc = M5Dial.Encoder.read();
     if (enc != lastEnc) {
       // Require 4 encoder counts to switch modes (better detent alignment)
-      int idx = (int)((enc / 4 % 3 + 3) % 3);  // 0, 1, or 2, handles negatives, divides by 4
+      int idx = (int)((enc / 4 % 4 + 4) % 4);  // 0, 1, 2, or 3, handles negatives, divides by 4
       Mode newMode;
       if (idx == 0) {
         newMode = MODE_WASH;
       } else if (idx == 1) {
         newMode = MODE_DRY;
+      } else if (idx == 2) {
+        newMode = MODE_RECYCLE;
       } else {
         newMode = MODE_OPTIONS;
       }
