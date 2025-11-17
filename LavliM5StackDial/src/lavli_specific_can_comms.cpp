@@ -5,18 +5,18 @@
 // 120V Controller Functions
 // ============================================================================
 
-bool toggleDryer(bool on) {
+bool toggleHeater(bool on) {
     uint8_t command = on ? ACTIVATE_CMD : DEACTIVATE_CMD;
 
     Serial.printf("[Lavli] %s dryer (port %d)\n",
-                  on ? "Activating" : "Deactivating", DRYER_PORT);
+                  on ? "Activating" : "Deactivating", HEATER_PORT);
 
-    bool success = sendOutputCommand(CONTROLLER_120V_1_ADDRESS, command, DRYER_PORT);
+    bool success = sendOutputCommand(CONTROLLER_120V_1_ADDRESS, command, HEATER_PORT);
 
     if (success) {
-        Serial.println("[Lavli] Dryer command sent successfully");
+        Serial.println("[Lavli] Heater command sent successfully");
     } else {
-        Serial.println("[Lavli] Failed to send dryer command");
+        Serial.println("[Lavli] Failed to send heater command");
     }
 
     return success;

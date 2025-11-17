@@ -242,7 +242,8 @@ void loop() {
       Serial.println("Button pressed - sending STOP command");
       // sendStopCommand();
       // sendOutputCommand(CONTROLLER_12V_1_ADDRESS, DEACTIVATE_CMD, 1); // Example: deactivate port 1
-      setMotorRPM(25);
+      // setMotorRPM(0);
+      // requestCleanTankHighWaterSensor();
     }
   }
 }
