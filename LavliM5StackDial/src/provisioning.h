@@ -17,6 +17,7 @@
 #define PASS_CHAR_UUID    "7b1e0003-0d7a-4c80-9f31-7f9c18a2b001"
 #define CONTROL_CHAR_UUID "7b1e0004-0d7a-4c80-9f31-7f9c18a2b001"
 #define STATUS_CHAR_UUID  "7b1e0005-0d7a-4c80-9f31-7f9c18a2b001"
+#define MAC_CHAR_UUID     "7b1e0006-0d7a-4c80-9f31-7f9c18a2b001"
 
 // Connection states
 enum ConnectionState {
@@ -38,6 +39,7 @@ extern String devicePassword;
 extern NimBLEServer* bleServer;
 extern NimBLEAdvertising* bleAdvertising;
 extern NimBLECharacteristic* statusCharacteristic;
+extern NimBLECharacteristic* macCharacteristic;
 
 // WiFi Manager
 extern WiFiManager wifiManager;

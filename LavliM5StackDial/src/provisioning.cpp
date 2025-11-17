@@ -1,4 +1,5 @@
 #include "provisioning.h"
+#include "mac_utils.h"
 
 // Global state variables
 ConnectionState currentConnectionState = STATE_DISCONNECTED;
@@ -11,6 +12,7 @@ String devicePassword = "";
 NimBLEServer* bleServer = nullptr;
 NimBLEAdvertising* bleAdvertising = nullptr;
 NimBLECharacteristic* statusCharacteristic = nullptr;
+NimBLECharacteristic* macCharacteristic = nullptr;
 
 // WiFi Manager
 WiFiManager wifiManager;
@@ -58,7 +60,17 @@ bool initializeBLE() {
   statusCharacteristic = service->createCharacteristic(
     STATUS_CHAR_UUID, NIMBLE_PROPERTY::NOTIFY
   );
-  
+
+  // MAC Address characteristic (read-only)
+  macCharacteristic = service->createCharacteristic(
+    MAC_CHAR_UUID, NIMBLE_PROPERTY::READ
+  );
+
+  // Set MAC address value
+  String macAddress = getMACAddress();
+  macCharacteristic->setValue(macAddress.c_str());
+  Serial.printf("[BLE] MAC Address exposed via BLE: %s\n", macAddress.c_str());
+
   // Start service
   service->start();
   

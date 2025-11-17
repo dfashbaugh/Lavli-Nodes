@@ -3,6 +3,10 @@
 #include "lavli_specific_can_comms.h"
 #include "provisioning.h"
 #include "ui_drawing.h"
+#include "mqtt_handler.h"
+#include "api_client.h"
+#include "config.h"
+#include "mac_utils.h"
 enum Screen : int { SCREEN_STARTUP = 0, SCREEN_MAIN = 1 };
 
 long lastEnc = LONG_MIN;
@@ -14,6 +18,11 @@ const unsigned long STARTUP_DURATION = 3000; // 3 seconds
 
 // CAN communication variables
 bool canInitialized = false;
+
+// MQTT and API variables
+bool mqttInitialized = false;
+bool apiInitialized = false;
+MachineStatus currentMachineStatus = MACHINE_IDLE;
 
 void setup() {
 
@@ -72,6 +81,28 @@ void setup() {
   Serial.println("Setting up WiFi...");
   setupWiFi();
 
+  // Initialize MQTT and API if WiFi is connected
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi connected - initializing MQTT and API...");
+
+    // Print MAC address
+    String macAddress = getMACAddress();
+    Serial.print("Hardware ID (MAC): ");
+    Serial.println(macAddress);
+
+    // Initialize MQTT
+    initializeMQTT();
+    mqttInitialized = true;
+    Serial.println("MQTT initialized");
+
+    // Initialize API client
+    initializeAPIClient();
+    apiInitialized = true;
+    Serial.println("API client initialized");
+  } else {
+    Serial.println("WiFi not connected - skipping MQTT/API initialization");
+  }
+
   // Start encoder at 0 so modulo works cleanly
   M5Dial.Encoder.write(0);
   lastEnc = 0;
@@ -104,6 +135,76 @@ void loop() {
 
   // Process provisioning
   processProvisioning();
+
+  // Initialize MQTT and API if WiFi just connected
+  if (WiFi.status() == WL_CONNECTED && !mqttInitialized) {
+    Serial.println("WiFi connected - initializing MQTT and API...");
+    initializeMQTT();
+    mqttInitialized = true;
+    initializeAPIClient();
+    apiInitialized = true;
+  }
+
+  // Process MQTT if initialized
+  if (mqttInitialized) {
+    loopMQTT();
+
+    // Process MQTT commands
+    if (dryCommand.received) {
+      Serial.println("Processing DRY command from MQTT");
+      currentMode = MODE_DRY;
+      currentMachineStatus = MACHINE_DRYING;
+      drawUI(currentMode);
+
+      // Send CAN command if needed
+      if (canInitialized) {
+        // sendDryCommand(); // Uncomment when CAN commands are defined
+      }
+
+      clearMQTTCommand(&dryCommand);
+    }
+
+    if (washCommand.received) {
+      Serial.println("Processing WASH command from MQTT");
+      currentMode = MODE_WASH;
+      currentMachineStatus = MACHINE_WASHING;
+      drawUI(currentMode);
+
+      // Send CAN command if needed
+      if (canInitialized) {
+        // sendWashCommand(); // Uncomment when CAN commands are defined
+      }
+
+      clearMQTTCommand(&washCommand);
+    }
+
+    if (stopCommand.received) {
+      Serial.println("Processing STOP command from MQTT");
+      currentMachineStatus = MACHINE_IDLE;
+      setMachineStatusMessage("Stopped via MQTT");
+
+      // Send CAN stop command if needed
+      if (canInitialized) {
+        // sendStopCommand(); // Uncomment when CAN commands are defined
+      }
+
+      clearMQTTCommand(&stopCommand);
+    }
+  }
+
+  // Process API check-in if initialized
+  if (apiInitialized) {
+    // Update machine status based on current mode
+    if (currentMachineStatus != MACHINE_IDLE) {
+      // Status already set by MQTT command or previous state
+      setMachineStatus(currentMachineStatus);
+    } else {
+      // Infer status from current mode (for manual encoder changes)
+      setMachineStatus(MACHINE_IDLE);
+    }
+
+    processAPICheckin();
+  }
 
   // Process CAN messages if initialized
   if (canInitialized) {
