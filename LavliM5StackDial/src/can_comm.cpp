@@ -1,5 +1,9 @@
 #include "can_comm.h"
 
+// Sensor data storage arrays
+SensorReading analog_readings[MAX_DEVICES][MAX_PINS];
+SensorReading digital_readings[MAX_DEVICES][MAX_PINS];
+
 // CAN Configuration structures
 // NO_ACK mode: For testing without a CAN transceiver (loopback only)
 // NORMAL mode: For production with CAN transceiver connected
@@ -202,40 +206,10 @@ bool sendCANMessage(uint16_t address, uint8_t command, uint8_t data) {
 //   return sendMotorCommand(MOTOR_STOP_CMD, 0x00);
 // }
 
-void processCANMessages() {
-  twai_message_t message;
-
-  // Check for received messages (non-blocking)
-  if (twai_receive(&message, 0) == ESP_OK) {
-    Serial.printf("[CAN] Received message - Address: 0x%03X, Command: 0x%02X, Data: 0x%02X\n",
-                  message.identifier, message.data[0], message.data[1]);
-
-  //   // Process motor responses
-  //   if (message.identifier == MOTOR_CONTROL_ADDRESS) {
-  //     switch (message.data[0]) {
-  //       case ACK_MOTOR_RPM:
-  //         Serial.printf("[CAN] Motor ACK: RPM set to %d\n", message.data[1]);
-  //         break;
-  //       case ACK_MOTOR_DIRECTION:
-  //         Serial.printf("[CAN] Motor ACK: Direction set to %s\n",
-  //                      message.data[1] ? "Forward" : "Reverse");
-  //         break;
-  //       case ACK_MOTOR_STOP:
-  //         Serial.println("[CAN] Motor ACK: Motor stopped");
-  //         break;
-  //       case MOTOR_STATUS_DATA:
-  //         Serial.printf("[CAN] Motor Status: %d\n", message.data[1]);
-  //         break;
-  //       case ERROR_RESPONSE:
-  //         Serial.println("[CAN] Motor Error Response");
-  //         break;
-  //       default:
-  //         Serial.printf("[CAN] Unknown motor response: 0x%02X\n", message.data[0]);
-  //         break;
-  //     }
-  //   }
-  // }
-}
+// NOTE: Old processCANMessages() has been replaced with:
+//       - receiveCANMessages() - receives messages and calls processor
+//       - processReceivedMessage() - full switch-case processing with sensor storage
+// These new functions are defined at the end of this file.
 
 // Pin control functions (from master node)
 
@@ -432,5 +406,230 @@ bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length)
   } else {
     Serial.printf("[CAN] Failed to send message to 0x%03X\n", address);
     return false;
+  }
+}
+
+// ========================================
+// Sensor Storage Management Functions
+// ========================================
+
+void initializeSensorStorage() {
+  for (uint8_t dev = 0; dev < MAX_DEVICES; dev++) {
+    for (uint8_t pin = 0; pin < MAX_PINS; pin++) {
+      analog_readings[dev][pin].analog_value = 0;
+      analog_readings[dev][pin].valid = false;
+      analog_readings[dev][pin].timestamp = 0;
+
+      digital_readings[dev][pin].digital_value = false;
+      digital_readings[dev][pin].valid = false;
+      digital_readings[dev][pin].timestamp = 0;
+    }
+  }
+  Serial.println("[CAN] Sensor storage initialized");
+}
+
+uint8_t getDeviceIndex(uint16_t device_address) {
+  return device_address % MAX_DEVICES;
+}
+
+void storeSensorReading(uint16_t device_address, uint8_t pin, uint16_t value, bool is_analog) {
+  uint8_t dev_index = getDeviceIndex(device_address);
+
+  if (pin >= MAX_PINS) {
+    Serial.printf("[CAN] Warning: Pin %d out of range (max %d)\n", pin, MAX_PINS - 1);
+    return;
+  }
+
+  if (is_analog) {
+    analog_readings[dev_index][pin].analog_value = value;
+    analog_readings[dev_index][pin].valid = true;
+    analog_readings[dev_index][pin].timestamp = millis();
+  } else {
+    digital_readings[dev_index][pin].digital_value = (value != 0);
+    digital_readings[dev_index][pin].valid = true;
+    digital_readings[dev_index][pin].timestamp = millis();
+  }
+}
+
+SensorReading getAnalogReading(uint16_t device_address, uint8_t pin) {
+  SensorReading invalid_reading = {0, false, false, 0};
+
+  if (pin >= MAX_PINS) {
+    return invalid_reading;
+  }
+
+  uint8_t dev_index = getDeviceIndex(device_address);
+  return analog_readings[dev_index][pin];
+}
+
+SensorReading getDigitalReading(uint16_t device_address, uint8_t pin) {
+  SensorReading invalid_reading = {0, false, false, 0};
+
+  if (pin >= MAX_PINS) {
+    return invalid_reading;
+  }
+
+  uint8_t dev_index = getDeviceIndex(device_address);
+  return digital_readings[dev_index][pin];
+}
+
+void printSensorData(uint16_t device_address) {
+  uint8_t dev_index = getDeviceIndex(device_address);
+  unsigned long current_time = millis();
+
+  Serial.printf("\n========== Sensor Data for Device 0x%03X ==========\n", device_address);
+
+  // Print analog readings
+  Serial.println("\nAnalog Readings:");
+  bool has_analog = false;
+  for (uint8_t pin = 0; pin < MAX_PINS; pin++) {
+    if (analog_readings[dev_index][pin].valid) {
+      has_analog = true;
+      uint16_t value = analog_readings[dev_index][pin].analog_value;
+      float voltage = (value / 4095.0) * 3.3;  // Convert to voltage (assuming 12-bit ADC, 3.3V reference)
+      unsigned long age = current_time - analog_readings[dev_index][pin].timestamp;
+      Serial.printf("  Pin %d: %d (%.2fV) - Age: %lu ms\n", pin, value, voltage, age);
+    }
+  }
+  if (!has_analog) {
+    Serial.println("  No valid analog readings");
+  }
+
+  // Print digital readings
+  Serial.println("\nDigital Readings:");
+  bool has_digital = false;
+  for (uint8_t pin = 0; pin < MAX_PINS; pin++) {
+    if (digital_readings[dev_index][pin].valid) {
+      has_digital = true;
+      bool value = digital_readings[dev_index][pin].digital_value;
+      unsigned long age = current_time - digital_readings[dev_index][pin].timestamp;
+      Serial.printf("  Pin %d: %s - Age: %lu ms\n", pin, value ? "HIGH" : "LOW", age);
+    }
+  }
+  if (!has_digital) {
+    Serial.println("  No valid digital readings");
+  }
+
+  Serial.println("==================================================\n");
+}
+
+// ========================================
+// Message Processing Functions
+// ========================================
+
+void processReceivedMessage(twai_message_t* message) {
+  uint8_t command = message->data[0];
+
+  switch (command) {
+    case ACK_ACTIVATE: {
+      uint8_t port = message->data[1];
+      uint8_t status = message->data[2];
+      Serial.printf("[CAN] ACK: Activate Port %d - Status: 0x%02X\n", port, status);
+      break;
+    }
+
+    case ACK_DEACTIVATE: {
+      uint8_t port = message->data[1];
+      uint8_t status = message->data[2];
+      Serial.printf("[CAN] ACK: Deactivate Port %d - Status: 0x%02X\n", port, status);
+      break;
+    }
+
+    case ACK_MOTOR_RPM: {
+      uint16_t confirmed_speed = (message->data[1] << 8) | message->data[2];
+      Serial.printf("[CAN] ACK: Motor RPM set to %d\n", confirmed_speed);
+      break;
+    }
+
+    case ACK_MOTOR_DIRECTION: {
+      bool clockwise = (message->data[1] != 0);
+      Serial.printf("[CAN] ACK: Motor direction set to %s\n", clockwise ? "CW" : "CCW");
+      break;
+    }
+
+    case ACK_MOTOR_STOP: {
+      Serial.println("[CAN] ACK: Motor stopped");
+      break;
+    }
+
+    case ANALOG_DATA: {
+      uint8_t pin = message->data[1];
+      uint16_t value = (message->data[2] << 8) | message->data[3];
+      Serial.printf("[CAN] Analog Data: Pin %d = %d\n", pin, value);
+      storeSensorReading(message->identifier, pin, value, true);
+      break;
+    }
+
+    case DIGITAL_DATA: {
+      uint8_t pin = message->data[1];
+      bool value = (message->data[2] != 0);
+      Serial.printf("[CAN] Digital Data: Pin %d = %s\n", pin, value ? "HIGH" : "LOW");
+      storeSensorReading(message->identifier, pin, value ? 1 : 0, false);
+      break;
+    }
+
+    case ALL_ANALOG_DATA: {
+      Serial.printf("[CAN] All Analog Data from 0x%03X:\n", message->identifier);
+      // Data format: [command][pin0][high0][low0][pin1][high1][low1]...
+      // Each reading takes 3 bytes
+      uint8_t num_readings = (message->data_length_code - 1) / 3;
+      for (uint8_t i = 0; i < num_readings && (1 + i * 3 + 2) < message->data_length_code; i++) {
+        uint8_t pin = message->data[1 + i * 3];
+        uint16_t value = (message->data[1 + i * 3 + 1] << 8) | message->data[1 + i * 3 + 2];
+        Serial.printf("  Pin %d: %d\n", pin, value);
+        storeSensorReading(message->identifier, pin, value, true);
+      }
+      break;
+    }
+
+    case ALL_DIGITAL_DATA: {
+      Serial.printf("[CAN] All Digital Data from 0x%03X:\n", message->identifier);
+      // Data format: [command][bitfield]
+      // Each bit represents one pin (bit 0 = pin 0, bit 1 = pin 1, etc.)
+      uint8_t bitfield = message->data[1];
+      for (uint8_t pin = 0; pin < 8; pin++) {
+        bool value = (bitfield & (1 << pin)) != 0;
+        Serial.printf("  Pin %d: %s\n", pin, value ? "HIGH" : "LOW");
+        storeSensorReading(message->identifier, pin, value ? 1 : 0, false);
+      }
+      break;
+    }
+
+    case MOTOR_STATUS_DATA: {
+      uint8_t status = message->data[1];
+      uint16_t current_rpm = (message->data[2] << 8) | message->data[3];
+      bool direction = (message->data[4] != 0);
+      Serial.printf("[CAN] Motor Status: Status=0x%02X, RPM=%d, Dir=%s\n",
+                    status, current_rpm, direction ? "CW" : "CCW");
+      break;
+    }
+
+    case ERROR_RESPONSE: {
+      uint8_t port_or_pin = message->data[1];
+      uint8_t error_code = message->data[2];
+      Serial.printf("[CAN] ERROR: Port/Pin %d - Error Code: 0x%02X\n", port_or_pin, error_code);
+      break;
+    }
+
+    default: {
+      Serial.printf("[CAN] Unknown command: 0x%02X\n", command);
+      break;
+    }
+  }
+}
+
+void receiveCANMessages() {
+  twai_message_t message;
+
+  // Check for received messages (non-blocking)
+  while (twai_receive(&message, 0) == ESP_OK) {
+    Serial.printf("[CAN] <<< Received from 0x%03X: ", message.identifier);
+    for (uint8_t i = 0; i < message.data_length_code; i++) {
+      Serial.printf("0x%02X ", message.data[i]);
+    }
+    Serial.println();
+
+    // Process the message
+    processReceivedMessage(&message);
   }
 }

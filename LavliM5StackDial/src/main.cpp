@@ -46,6 +46,9 @@ void setup() {
   if (canInitialized) {
     Serial.println("CAN communication ready");
 
+    // Initialize sensor data storage system
+    initializeSensorStorage();
+
     // Optional: Uncomment to send test messages on startup
     /*
     Serial.println("\n[TEST] Sending startup test messages...");
@@ -101,10 +104,10 @@ void loop() {
 
   // Process provisioning
   processProvisioning();
-  
+
   // Process CAN messages if initialized
   if (canInitialized) {
-    processCANMessages();
+    receiveCANMessages();
   }
 
   // Main screen encoder handling

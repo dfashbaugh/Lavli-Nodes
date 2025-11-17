@@ -58,6 +58,22 @@
 #define MOTOR_STATUS_DATA     0x43
 #define ERROR_RESPONSE        0xFF
 
+// Sensor data storage system
+struct SensorReading {
+  uint16_t analog_value;
+  bool digital_value;
+  bool valid;
+  unsigned long timestamp;
+};
+
+// Storage configuration
+#define MAX_DEVICES 16
+#define MAX_PINS 8
+
+// Storage arrays (defined in can_comm.cpp)
+extern SensorReading analog_readings[MAX_DEVICES][MAX_PINS];
+extern SensorReading digital_readings[MAX_DEVICES][MAX_PINS];
+
 // Function declarations
 bool initializeCAN();
 bool sendCANMessage(uint16_t address, uint8_t command, uint8_t data = 0);
@@ -65,7 +81,6 @@ bool sendCANMessage(uint16_t address, uint8_t command, uint8_t data = 0);
 // bool sendWashCommand();
 // bool sendDryCommand();
 // bool sendStopCommand();
-void processCANMessages();
 
 // Pin control functions (from master node)
 bool sendOutputCommand(uint16_t device_address, uint8_t command, uint8_t port);
@@ -79,6 +94,17 @@ bool sendMotorStop(uint16_t device_address);
 bool requestMotorStatus(uint16_t device_address);
 bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length);
 
+// Sensor storage management functions
+void initializeSensorStorage();
+void storeSensorReading(uint16_t device_address, uint8_t pin, uint16_t value, bool is_analog);
+SensorReading getAnalogReading(uint16_t device_address, uint8_t pin);
+SensorReading getDigitalReading(uint16_t device_address, uint8_t pin);
+uint8_t getDeviceIndex(uint16_t device_address);
+void printSensorData(uint16_t device_address);
+
+// Message processing functions
+void receiveCANMessages();
+void processReceivedMessage(twai_message_t* message);
 
 // // CAN Node Addresses (matching master node)
 // #define MASTER_NODE_ADDRESS     0x300
