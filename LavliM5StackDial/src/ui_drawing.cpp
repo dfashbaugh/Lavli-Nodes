@@ -80,6 +80,40 @@ void drawStartupScreen() {
   d.drawString("Lavli", cx, cy);
 }
 
+void drawWashingScreen() {
+  auto& d = M5Dial.Display;
+  d.clear();
+  
+  // Get screen center
+  int cx = d.width() / 2;
+  int cy = d.height() / 2;
+  
+  // Create a shiny gradient effect with multiple text layers
+  d.setTextDatum(middle_center);
+  d.setTextSize(3);
+  
+  // Main text with gradient effect
+  d.setTextColor(COLOR_CYAN); // Cyan
+  d.drawString("Washing", cx, cy);
+}
+
+void drawDryingScreen() {
+  auto& d = M5Dial.Display;
+  d.clear();
+  
+  // Get screen center
+  int cx = d.width() / 2;
+  int cy = d.height() / 2;
+  
+  // Create a shiny gradient effect with multiple text layers
+  d.setTextDatum(middle_center);
+  d.setTextSize(3);
+  
+  // Main text with gradient effect
+  d.setTextColor(COLOR_CYAN); // Cyan
+  d.drawString("Drying", cx, cy);
+}
+
 void drawUI(Mode m) {
   auto& d = M5Dial.Display;
   d.clear();

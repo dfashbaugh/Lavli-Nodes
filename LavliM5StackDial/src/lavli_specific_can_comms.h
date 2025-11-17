@@ -115,4 +115,211 @@ SensorReading getCleanTankMidWaterSensor();
  */
 SensorReading getCleanTankHighWaterSensor();
 
+// ============================================================================
+// 12V Controller Toggle Functions
+// ============================================================================
+
+/**
+ * Toggle the peristaltic pump on or off (12V Board 1, Port 1)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool togglePeristalticPump(bool on);
+
+/**
+ * Toggle the ozone generator on or off (12V Board 1, Port 2)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleOzoneGenerator(bool on);
+
+/**
+ * Toggle the drain pump on or off (12V Board 1, Port 3)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleDrainPump(bool on);
+
+/**
+ * Toggle the condenser fans on or off (12V Board 2, Port 1)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleCondenserFans(bool on);
+
+/**
+ * Toggle the clean water pump on or off (12V Board 2, Port 2)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleCleanWaterPump(bool on);
+
+// ============================================================================
+// 120V Controller Toggle Functions
+// ============================================================================
+
+/**
+ * Toggle the vane pump on or off (120V Board 1, Port 2)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleVanePump(bool on);
+
+/**
+ * Toggle the heater fans on or off (120V Board 2, Port 2)
+ * @param on true to activate, false to deactivate
+ * @return true if command sent successfully
+ */
+bool toggleHeaterFans(bool on);
+
+// ============================================================================
+// Temperature Sensor Functions (Analog)
+// ============================================================================
+
+/**
+ * Request temperature resistor back sensor reading (Sensor Node 1, Analog Pin 8)
+ * Sends CAN request - use getTemperatureResistorBack() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestTemperatureResistorBack();
+
+/**
+ * Get last received temperature resistor back sensor reading
+ * @return SensorReading struct (check .valid field before using .analog_value)
+ */
+SensorReading getTemperatureResistorBack();
+
+/**
+ * Request temperature resistor front sensor reading (Sensor Node 1, Analog Pin 7)
+ * Sends CAN request - use getTemperatureResistorFront() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestTemperatureResistorFront();
+
+/**
+ * Get last received temperature resistor front sensor reading
+ * @return SensorReading struct (check .valid field before using .analog_value)
+ */
+SensorReading getTemperatureResistorFront();
+
+// ============================================================================
+// Dirty Tank Water Level Sensor Functions (Digital)
+// ============================================================================
+
+/**
+ * Request dirty tank low water level sensor reading (Sensor Node 2, Pin 1)
+ * Sends CAN request - use getDirtyTankLowWaterSensor() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestDirtyTankLowWaterSensor();
+
+/**
+ * Get last received dirty tank low water level sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getDirtyTankLowWaterSensor();
+
+/**
+ * Request dirty tank mid water level sensor reading (Sensor Node 2, Pin 2)
+ * Sends CAN request - use getDirtyTankMidWaterSensor() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestDirtyTankMidWaterSensor();
+
+/**
+ * Get last received dirty tank mid water level sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getDirtyTankMidWaterSensor();
+
+/**
+ * Request dirty tank high water level sensor reading (Sensor Node 2, Pin 3)
+ * Sends CAN request - use getDirtyTankHighWaterSensor() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestDirtyTankHighWaterSensor();
+
+/**
+ * Get last received dirty tank high water level sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getDirtyTankHighWaterSensor();
+
+// ============================================================================
+// Leak Detection Sensor Functions (Digital)
+// ============================================================================
+
+/**
+ * Request leak detection front sensor reading (Sensor Node 2, Pin 6)
+ * Sends CAN request - use getLeakDetectionFront() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestLeakDetectionFront();
+
+/**
+ * Get last received leak detection front sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getLeakDetectionFront();
+
+/**
+ * Request leak detection back sensor reading (Sensor Node 2, Pin 8)
+ * Sends CAN request - use getLeakDetectionBack() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestLeakDetectionBack();
+
+/**
+ * Get last received leak detection back sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getLeakDetectionBack();
+
+// ============================================================================
+// Purge Tank Sensor Functions (Digital)
+// ============================================================================
+
+/**
+ * Request purge tank low sensor reading (Sensor Node 2, Pin 9)
+ * Sends CAN request - use getPurgeTankLowSensor() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestPurgeTankLowSensor();
+
+/**
+ * Get last received purge tank low sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getPurgeTankLowSensor();
+
+/**
+ * Request purge tank high sensor reading (Sensor Node 2, Pin 10)
+ * Sends CAN request - use getPurgeTankHighSensor() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestPurgeTankHighSensor();
+
+/**
+ * Get last received purge tank high sensor reading
+ * @return SensorReading struct (check .valid field before using .digital_value)
+ */
+SensorReading getPurgeTankHighSensor();
+
+// ============================================================================
+// Pressure Sensor Functions (Analog)
+// ============================================================================
+
+/**
+ * Request pressure sensor reading (Sensor Node 2, Analog Pin 11)
+ * Sends CAN request - use getPressureSensor() to retrieve value
+ * @return true if request sent successfully
+ */
+bool requestPressureSensor();
+
+/**
+ * Get last received pressure sensor reading
+ * @return SensorReading struct (check .valid field before using .analog_value)
+ */
+SensorReading getPressureSensor();
+
 #endif // LAVLI_SPECIFIC_CAN_COMMS_H
