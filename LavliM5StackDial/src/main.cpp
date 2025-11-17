@@ -268,6 +268,44 @@ void stopAll()
   drawUI(currentMode);
 }
 
+void clickEachSolenoid()
+{
+  Serial.println("Clicking each solenoid for testing");
+
+  // toggleROBallValve(true);
+  // nonBlockingDelay(5000);
+  
+  // toggleVanePump(true);
+  // nonBlockingDelay(1000);
+  // toggleVanePump(false);
+  // nonBlockingDelay(200);
+
+  // toggleROBallValve(false);
+  // nonBlockingDelay(200);
+
+  // toggleCleanInletSolenoid(true);
+  // nonBlockingDelay(5000);
+  // toggleCleanInletSolenoid(false);
+  // nonBlockingDelay(200);
+
+  // toggleROFlushInletSolenoid(true);
+  // nonBlockingDelay(5000);
+  // toggleROFlushInletSolenoid(false);
+  // nonBlockingDelay(200);
+
+  // toggleROFlushToPurgeSolenoid(true);
+  // nonBlockingDelay(5000);
+  // toggleROFlushToPurgeSolenoid(false);
+  // nonBlockingDelay(200);
+
+  // toggleROBallValve(true);
+  // nonBlockingDelay(5000);
+  // toggleROBallValve(false);
+  // nonBlockingDelay(200);
+
+  Serial.println("Solenoid test complete");
+}
+
 void doDry()
 {
   Serial.println("Starting Dry Cycle - User Implementation");
@@ -284,6 +322,8 @@ void doDry()
 
   toggleCondenserFans(false);
   toggleHeaterFans(false);
+
+  // clickEachSolenoid();
 
   stopAll();
   currentScreen = SCREEN_MAIN;
