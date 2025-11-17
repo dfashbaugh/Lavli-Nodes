@@ -276,6 +276,17 @@ void doDry()
   // setMotorRPM(100);
   // toggleHeater(true);
   // toggleCondenserFans(true);
+
+  toggleCondenserFans(true);
+  toggleHeaterFans(true);
+
+  nonBlockingDelay(5000);
+
+  toggleCondenserFans(false);
+  toggleHeaterFans(false);
+
+  stopAll();
+  currentScreen = SCREEN_MAIN;
 }
 
 void doWash()
@@ -318,6 +329,10 @@ void doWash()
   nonBlockingDelay(2000);
 
   setMotorRPM(0);
+  toggleDrainPump(true);
+
+  nonBlockingDelay(5000);
+  toggleDrainPump(false);
 
   Serial.println("Wash Cycle Complete");
 
