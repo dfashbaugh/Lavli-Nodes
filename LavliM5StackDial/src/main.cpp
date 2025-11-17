@@ -322,6 +322,7 @@ void doDry()
   // toggleHeater(true);
   // toggleCondenserFans(true);
 
+  // TOOD: Add Heater, this typically runs for about 2 hours
   toggleCondenserFans(true);
   toggleHeaterFans(true);
 
@@ -344,6 +345,14 @@ void doWash()
   // setMotorRPM(50);
   // toggleCleanWaterPump(true);
   // togglePeristalticPump(true);
+
+  // TODO: Add OZone before pumps run,
+  // Run detergent first
+  // Drain then spin cycle
+  /* 
+
+  */
+
 
   toggleCleanWaterPump(true);
   toggleCleanInletSolenoid(true);
@@ -397,6 +406,17 @@ void doRecycle()
   // togglePeristalticPump(true);
   // nonBlockingDelay(10000);
   // ...
+
+  toggleROBallValve(true);
+  nonBlockingDelay(1000);
+  
+  toggleVanePump(true);
+  nonBlockingDelay(3000);
+  toggleVanePump(false);
+  nonBlockingDelay(200);
+
+  toggleROBallValve(false);
+  nonBlockingDelay(200);
 
   nonBlockingDelay(5000);
 
