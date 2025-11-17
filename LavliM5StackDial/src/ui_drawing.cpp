@@ -28,50 +28,46 @@ void drawSun(int cx, int cy, int r, uint32_t color) {
 }
 
 void drawRecycleSymbol(int cx, int cy, int r, uint32_t color) {
-  // Draw 3 curved arrows in a triangular formation (recycle symbol)
-  // Simplified as 3 triangular arrows pointing clockwise around center
+  // Draw 3 curved arrows in a circular formation (classic recycle symbol)
+  // Each arrow is at 120° intervals, creating a circular flow
 
-  // Arrow 1 (top) - pointing right
-  int arrow1_x = cx;
-  int arrow1_y = cy - r;
-  M5Dial.Display.fillTriangle(
-    arrow1_x - r/2, arrow1_y - r/3,
-    arrow1_x + r/2, arrow1_y - r/3,
-    arrow1_x + r/2, arrow1_y + r/3,
-    color);
-  M5Dial.Display.fillTriangle(
-    arrow1_x + r/2, arrow1_y - r/2,
-    arrow1_x + r/2 + r/3, arrow1_y,
-    arrow1_x + r/2, arrow1_y + r/2,
-    color);
+  auto& d = M5Dial.Display;
+  int arrowWidth = r / 4;
+  int innerRadius = r / 2;
+  int outerRadius = r;
 
-  // Arrow 2 (bottom-left) - pointing up-right
-  int arrow2_x = cx - r * 0.866; // cos(60°) * r
-  int arrow2_y = cy + r * 0.5;   // sin(60°) * r
-  M5Dial.Display.fillTriangle(
-    arrow2_x - r/3, arrow2_y + r/2,
-    arrow2_x + r/3, arrow2_y + r/2,
-    arrow2_x, arrow2_y - r/2,
-    color);
-  M5Dial.Display.fillTriangle(
-    arrow2_x - r/2, arrow2_y - r/2,
-    arrow2_x, arrow2_y - r/2 - r/3,
-    arrow2_x + r/2, arrow2_y - r/2,
-    color);
+  // Draw 3 arrows at 120° intervals
+  for (int i = 0; i < 3; i++) {
+    float baseAngle = i * (2 * PI / 3) - PI / 2;  // Start at top, go clockwise
 
-  // Arrow 3 (bottom-right) - pointing up-left
-  int arrow3_x = cx + r * 0.866;
-  int arrow3_y = cy + r * 0.5;
-  M5Dial.Display.fillTriangle(
-    arrow3_x - r/3, arrow3_y + r/2,
-    arrow3_x + r/3, arrow3_y + r/2,
-    arrow3_x, arrow3_y - r/2,
-    color);
-  M5Dial.Display.fillTriangle(
-    arrow3_x - r/2, arrow3_y - r/2,
-    arrow3_x, arrow3_y - r/2 - r/3,
-    arrow3_x + r/2, arrow3_y - r/2,
-    color);
+    // Draw curved arc body
+    float arcStart = baseAngle - PI / 6;
+    float arcEnd = baseAngle + PI / 6;
+
+    for (float angle = arcStart; angle <= arcEnd; angle += 0.1) {
+      int x1 = cx + (int)(cos(angle) * innerRadius);
+      int y1 = cy + (int)(sin(angle) * innerRadius);
+      int x2 = cx + (int)(cos(angle) * outerRadius);
+      int y2 = cy + (int)(sin(angle) * outerRadius);
+      d.drawLine(x1, y1, x2, y2, color);
+    }
+
+    // Draw arrowhead at the end
+    float headAngle = arcEnd;
+    int headX = cx + (int)(cos(headAngle) * (innerRadius + outerRadius) / 2);
+    int headY = cy + (int)(sin(headAngle) * (innerRadius + outerRadius) / 2);
+
+    // Arrowhead triangle pointing in direction of rotation (clockwise)
+    float perpAngle = headAngle + PI / 2;
+    int tipX = cx + (int)(cos(headAngle + 0.3) * (outerRadius + arrowWidth));
+    int tipY = cy + (int)(sin(headAngle + 0.3) * (outerRadius + arrowWidth));
+    int base1X = headX + (int)(cos(perpAngle) * arrowWidth);
+    int base1Y = headY + (int)(sin(perpAngle) * arrowWidth);
+    int base2X = headX - (int)(cos(perpAngle) * arrowWidth);
+    int base2Y = headY - (int)(sin(perpAngle) * arrowWidth);
+
+    d.fillTriangle(tipX, tipY, base1X, base1Y, base2X, base2Y, color);
+  }
 }
 
 void drawWiFiIcon(int x, int y, uint32_t color) {
