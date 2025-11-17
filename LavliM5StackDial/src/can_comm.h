@@ -27,11 +27,6 @@
 // CAN Configuration
 #define CAN_BAUD_RATE TWAI_TIMING_CONFIG_500KBITS()
 
-// CAN Node Addresses (matching master node)
-#define MASTER_NODE_ADDRESS     0x300
-#define MOTOR_CONTROL_ADDRESS   0x311
-#define CONTROLLER_120V_ADDRESS 0x543
-
 // Command definitions for output control (matching master node)
 #define ACTIVATE_CMD   0x01
 #define DEACTIVATE_CMD 0x02
@@ -66,10 +61,10 @@
 // Function declarations
 bool initializeCAN();
 bool sendCANMessage(uint16_t address, uint8_t command, uint8_t data = 0);
-bool sendMotorCommand(uint8_t command, uint8_t data = 0);
-bool sendWashCommand();
-bool sendDryCommand();
-bool sendStopCommand();
+// bool sendMotorCommand(uint8_t command, uint8_t data = 0);
+// bool sendWashCommand();
+// bool sendDryCommand();
+// bool sendStopCommand();
 void processCANMessages();
 
 // Pin control functions (from master node)
@@ -83,5 +78,12 @@ bool sendMotorDirection(uint16_t device_address, bool clockwise);
 bool sendMotorStop(uint16_t device_address);
 bool requestMotorStatus(uint16_t device_address);
 bool sendGenericCANMessage(uint16_t address, uint8_t* data, uint8_t data_length);
+
+
+// // CAN Node Addresses (matching master node)
+// #define MASTER_NODE_ADDRESS     0x300
+// #define MOTOR_CONTROL_ADDRESS   0x311
+// #define CONTROLLER_120V_ADDRESS 0x543
+
 
 #endif // CAN_COMM_H

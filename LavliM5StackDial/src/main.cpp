@@ -1,5 +1,6 @@
 #include <M5Dial.h>
 #include "can_comm.h"
+#include "lavli_specific_can_comms.h"
 #include "provisioning.h"
 #include "ui_drawing.h"
 enum Screen : int { SCREEN_STARTUP = 0, SCREEN_MAIN = 1 };
@@ -118,14 +119,14 @@ void loop() {
       drawUI(currentMode);
       
       // Send CAN command if mode changed and CAN is initialized
-      if (canInitialized && newMode != lastSentMode) {
-        if (newMode == MODE_WASH) {
-          sendWashCommand();
-        } else {
-          sendDryCommand();
-        }
-        lastSentMode = newMode;
-      }
+      // if (canInitialized && newMode != lastSentMode) {
+      //   // if (newMode == MODE_WASH) {
+      //   //   sendWashCommand();
+      //   // } else {
+      //   //   sendDryCommand();
+      //   // }
+      //   lastSentMode = newMode;
+      // }
     }
     lastEnc = enc;
   }

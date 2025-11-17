@@ -173,34 +173,34 @@ bool sendCANMessage(uint16_t address, uint8_t command, uint8_t data) {
   }
 }
 
-bool sendMotorCommand(uint8_t command, uint8_t data) {
-  return sendCANMessage(MOTOR_CONTROL_ADDRESS, command, data);
-}
+// bool sendMotorCommand(uint8_t command, uint8_t data) {
+//   return sendCANMessage(MOTOR_CONTROL_ADDRESS, command, data);
+// }
 
-bool sendWashCommand() {
-  Serial.println("[CAN] Sending WASH command to motor controller");
-  // Send motor start command with wash parameters
-  // For wash cycle: moderate RPM, forward direction
-  bool success = true;
-  success &= sendMotorCommand(MOTOR_SET_DIRECTION_CMD, 0x01); // Forward
-  success &= sendMotorCommand(MOTOR_SET_RPM_CMD, 150);        // 150 RPM for wash
-  return success;
-}
+// bool sendWashCommand() {
+//   Serial.println("[CAN] Sending WASH command to motor controller");
+//   // Send motor start command with wash parameters
+//   // For wash cycle: moderate RPM, forward direction
+//   bool success = true;
+//   success &= sendMotorCommand(MOTOR_SET_DIRECTION_CMD, 0x01); // Forward
+//   success &= sendMotorCommand(MOTOR_SET_RPM_CMD, 150);        // 150 RPM for wash
+//   return success;
+// }
 
-bool sendDryCommand() {
-  Serial.println("[CAN] Sending DRY command to motor controller");
-  // Send motor start command with dry parameters  
-  // For dry cycle: higher RPM, forward direction
-  bool success = true;
-  success &= sendMotorCommand(MOTOR_SET_DIRECTION_CMD, 0x01); // Forward
-  success &= sendMotorCommand(MOTOR_SET_RPM_CMD, 250);        // 250 RPM for dry
-  return success;
-}
+// bool sendDryCommand() {
+//   Serial.println("[CAN] Sending DRY command to motor controller");
+//   // Send motor start command with dry parameters  
+//   // For dry cycle: higher RPM, forward direction
+//   bool success = true;
+//   success &= sendMotorCommand(MOTOR_SET_DIRECTION_CMD, 0x01); // Forward
+//   success &= sendMotorCommand(MOTOR_SET_RPM_CMD, 250);        // 250 RPM for dry
+//   return success;
+// }
 
-bool sendStopCommand() {
-  Serial.println("[CAN] Sending STOP command to motor controller");
-  return sendMotorCommand(MOTOR_STOP_CMD, 0x00);
-}
+// bool sendStopCommand() {
+//   Serial.println("[CAN] Sending STOP command to motor controller");
+//   return sendMotorCommand(MOTOR_STOP_CMD, 0x00);
+// }
 
 void processCANMessages() {
   twai_message_t message;
@@ -210,31 +210,31 @@ void processCANMessages() {
     Serial.printf("[CAN] Received message - Address: 0x%03X, Command: 0x%02X, Data: 0x%02X\n",
                   message.identifier, message.data[0], message.data[1]);
 
-    // Process motor responses
-    if (message.identifier == MOTOR_CONTROL_ADDRESS) {
-      switch (message.data[0]) {
-        case ACK_MOTOR_RPM:
-          Serial.printf("[CAN] Motor ACK: RPM set to %d\n", message.data[1]);
-          break;
-        case ACK_MOTOR_DIRECTION:
-          Serial.printf("[CAN] Motor ACK: Direction set to %s\n",
-                       message.data[1] ? "Forward" : "Reverse");
-          break;
-        case ACK_MOTOR_STOP:
-          Serial.println("[CAN] Motor ACK: Motor stopped");
-          break;
-        case MOTOR_STATUS_DATA:
-          Serial.printf("[CAN] Motor Status: %d\n", message.data[1]);
-          break;
-        case ERROR_RESPONSE:
-          Serial.println("[CAN] Motor Error Response");
-          break;
-        default:
-          Serial.printf("[CAN] Unknown motor response: 0x%02X\n", message.data[0]);
-          break;
-      }
-    }
-  }
+  //   // Process motor responses
+  //   if (message.identifier == MOTOR_CONTROL_ADDRESS) {
+  //     switch (message.data[0]) {
+  //       case ACK_MOTOR_RPM:
+  //         Serial.printf("[CAN] Motor ACK: RPM set to %d\n", message.data[1]);
+  //         break;
+  //       case ACK_MOTOR_DIRECTION:
+  //         Serial.printf("[CAN] Motor ACK: Direction set to %s\n",
+  //                      message.data[1] ? "Forward" : "Reverse");
+  //         break;
+  //       case ACK_MOTOR_STOP:
+  //         Serial.println("[CAN] Motor ACK: Motor stopped");
+  //         break;
+  //       case MOTOR_STATUS_DATA:
+  //         Serial.printf("[CAN] Motor Status: %d\n", message.data[1]);
+  //         break;
+  //       case ERROR_RESPONSE:
+  //         Serial.println("[CAN] Motor Error Response");
+  //         break;
+  //       default:
+  //         Serial.printf("[CAN] Unknown motor response: 0x%02X\n", message.data[0]);
+  //         break;
+  //     }
+  //   }
+  // }
 }
 
 // Pin control functions (from master node)
