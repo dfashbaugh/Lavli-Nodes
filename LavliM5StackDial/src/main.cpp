@@ -33,6 +33,7 @@ void startRecycleCycle();
 void doWash();
 void doDry();
 void doRecycle();
+bool stopRequested = false;
 
 void setup() {
 
@@ -213,6 +214,7 @@ void alwaysRunMainLoopTasks()
       // Stop active cycle
       Serial.println("Button pressed - stopping cycle");
       stopAll();
+      stopRequested = true;
     } else if (currentScreen == SCREEN_OPTIONS) {
       // Return to main screen
       Serial.println("Button pressed - returning to main screen");
@@ -242,7 +244,17 @@ void nonBlockingDelay(unsigned long ms)
   while (millis() - start < ms) {
     alwaysRunMainLoopTasks();
     delay(1); // Small delay to prevent watchdog resets
+
+    if(stopRequested) {
+      break;
+    }
   }
+}
+
+void onCommandComplete()
+{
+  stopAll();
+  stopRequested = false;
 }
 
 void stopAll()
@@ -275,44 +287,6 @@ void stopAll()
   drawUI(currentMode);
 }
 
-void clickEachSolenoid()
-{
-  Serial.println("Clicking each solenoid for testing");
-
-  // toggleROBallValve(true);
-  // nonBlockingDelay(5000);
-  
-  // toggleVanePump(true);
-  // nonBlockingDelay(1000);
-  // toggleVanePump(false);
-  // nonBlockingDelay(200);
-
-  // toggleROBallValve(false);
-  // nonBlockingDelay(200);
-
-  // toggleCleanInletSolenoid(true);
-  // nonBlockingDelay(5000);
-  // toggleCleanInletSolenoid(false);
-  // nonBlockingDelay(200);
-
-  // toggleROFlushInletSolenoid(true);
-  // nonBlockingDelay(5000);
-  // toggleROFlushInletSolenoid(false);
-  // nonBlockingDelay(200);
-
-  // toggleROFlushToPurgeSolenoid(true);
-  // nonBlockingDelay(5000);
-  // toggleROFlushToPurgeSolenoid(false);
-  // nonBlockingDelay(200);
-
-  // toggleROBallValve(true);
-  // nonBlockingDelay(5000);
-  // toggleROBallValve(false);
-  // nonBlockingDelay(200);
-
-  Serial.println("Solenoid test complete");
-}
-
 void doDry()
 {
   Serial.println("Starting Dry Cycle - User Implementation");
@@ -327,11 +301,11 @@ void doDry()
   toggleHeaterFans(true);
 
   nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
 
   toggleCondenserFans(false);
   toggleHeaterFans(false);
-
-  // clickEachSolenoid();
 
   stopAll();
   currentScreen = SCREEN_MAIN;
@@ -358,36 +332,53 @@ void doWash()
   toggleCleanInletSolenoid(true);
 
   nonBlockingDelay(3000); 
+  if(stopRequested) 
+    return;
 
   togglePeristalticPump(true);
 
   nonBlockingDelay(2000);
+  if(stopRequested) 
+    return;
 
   togglePeristalticPump(false);
 
   nonBlockingDelay(2000);
+  if(stopRequested) 
+    return;
 
   setMotorRPM(25);
 
   nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
 
   toggleCleanWaterPump(false);
   toggleCleanInletSolenoid(false);
 
   nonBlockingDelay(2000);
+  if(stopRequested) 
+    return;
 
   setMotorRPM(100);
 
   nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
 
   setMotorRPM(25);
 
   nonBlockingDelay(2000);
+  if(stopRequested) 
+    return;
 
   setMotorRPM(0);
   toggleDrainPump(true);
 
   nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
+
   toggleDrainPump(false);
 
   Serial.println("Wash Cycle Complete");
@@ -408,17 +399,32 @@ void doRecycle()
   // ...
 
   toggleROBallValve(true);
+
   nonBlockingDelay(1000);
+  if(stopRequested) 
+    return;
   
   toggleVanePump(true);
+
   nonBlockingDelay(3000);
+  if(stopRequested) 
+    return;
+
   toggleVanePump(false);
+
   nonBlockingDelay(200);
+  if(stopRequested) 
+    return;
 
   toggleROBallValve(false);
+
   nonBlockingDelay(200);
+  if(stopRequested) 
+    return;
 
   nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
 
   stopAll();
   currentScreen = SCREEN_MAIN;
@@ -434,6 +440,7 @@ void startWashCycle()
 
   // Call user-defined wash cycle logic
   doWash();
+  onCommandComplete();
 }
 
 void startDryCycle()
@@ -446,6 +453,7 @@ void startDryCycle()
 
   // Call user-defined dry cycle logic
   doDry();
+  onCommandComplete();
 }
 
 void startRecycleCycle()
@@ -458,6 +466,7 @@ void startRecycleCycle()
 
   // Call user-defined recycle cycle logic
   doRecycle();
+  onCommandComplete();
 }
 
 
