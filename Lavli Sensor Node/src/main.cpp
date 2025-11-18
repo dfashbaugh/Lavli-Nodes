@@ -5,32 +5,87 @@
 #define CAN_TX_PIN GPIO_NUM_4
 #define CAN_RX_PIN GPIO_NUM_5
 
+#define LEFT_BOARD  // Comment this line for right board configuration
+
+#ifdef LEFT_BOARD
+  // Left board specific pin definitions can go here
 // Device CAN address - Change this for each sensor device on your network
 #define MY_CAN_ADDRESS 0x124
 
 // Analog pin definitions - Map analog pin numbers to GPIO pins
-#define ANALOG_PIN_0 GPIO_NUM_1   // A0
-#define ANALOG_PIN_1 GPIO_NUM_2   // A1
-#define ANALOG_PIN_2 GPIO_NUM_3   // A2
-#define ANALOG_PIN_3 GPIO_NUM_10  // A3
-#define ANALOG_PIN_4 GPIO_NUM_11  // A4
-#define ANALOG_PIN_5 GPIO_NUM_12  // A5
-#define ANALOG_PIN_6 GPIO_NUM_13  // A6
-#define ANALOG_PIN_7 GPIO_NUM_14  // A7
+#define ANALOG_PIN_0 GPIO_NUM_8   // Temp Back
+#define ANALOG_PIN_1 GPIO_NUM_7   // Temp Front
+#define ANALOG_PIN_2 GPIO_NUM_10 // flow sensor (TODO: We will have special handling for this)
+
+#define FLOW_SENSOR_PIN ANALOG_PIN_2
 
 // Digital pin definitions - Map digital pin numbers to GPIO pins
-#define DIGITAL_PIN_0 GPIO_NUM_15
-#define DIGITAL_PIN_1 GPIO_NUM_16
-#define DIGITAL_PIN_2 GPIO_NUM_17
-#define DIGITAL_PIN_3 GPIO_NUM_18
-#define DIGITAL_PIN_4 GPIO_NUM_19
-#define DIGITAL_PIN_5 GPIO_NUM_20
-#define DIGITAL_PIN_6 GPIO_NUM_21
-#define DIGITAL_PIN_7 GPIO_NUM_47
+#define DIGITAL_PIN_0 GPIO_NUM_1 // Clean Tank low
+#define DIGITAL_PIN_1 GPIO_NUM_2 // Clean Tank Mid
+#define DIGITAL_PIN_2 GPIO_NUM_3 // Clean Tank High
 
 // Maximum number of pins supported
-#define MAX_ANALOG_PINS 8
-#define MAX_DIGITAL_PINS 8
+#define MAX_ANALOG_PINS 3
+#define MAX_DIGITAL_PINS 3
+
+// Pin mapping arrays
+const int analog_pins[MAX_ANALOG_PINS] = {
+  ANALOG_PIN_0, ANALOG_PIN_1, ANALOG_PIN_2
+};
+
+const int digital_pins[MAX_DIGITAL_PINS] = {
+  DIGITAL_PIN_0, DIGITAL_PIN_1, DIGITAL_PIN_2
+};
+
+volatile uint32_t pulseStart = 0;
+volatile uint32_t pulseWidth = 0;
+volatile bool newPulse = false;
+uint32_t pulseCount = 0;
+uint32_t pulsesPerSecond = 0;
+
+unsigned long pulseCheckTime = 0;
+
+void IRAM_ATTR pulseISR() {
+    if (digitalRead(FLOW_SENSOR_PIN) == HIGH) {
+        pulseStart = micros();
+    } else {
+        pulseWidth = micros() - pulseStart;
+        newPulse = true;
+        pulseCount++;
+    }
+}
+
+#else 
+
+#define MY_CAN_ADDRESS 0x128
+
+// Analog pin definitions - Map analog pin numbers to GPIO pins
+#define ANALOG_PIN_0 GPIO_NUM_11   // Pressure Sensor 
+
+
+// Digital pin definitions - Map digital pin numbers to GPIO pins
+#define DIGITAL_PIN_0 GPIO_NUM_1 // Dirty Tank Low
+#define DIGITAL_PIN_1 GPIO_NUM_2 // Dirty Tank Mid
+#define DIGITAL_PIN_2 GPIO_NUM_3 // Dirty Tank High
+#define DIGITAL_PIN_3 GPIO_NUM_6 // Leak Detection Front
+#define DIGITAL_PIN_4 GPIO_NUM_8 // Leak Detection Back
+#define DIGITAL_PIN_5 GPIO_NUM_9 // Purge Low
+#define DIGITAL_PIN_6 GPIO_NUM_10 // Purge High
+// Maximum number of pins supported
+#define MAX_ANALOG_PINS 1
+#define MAX_DIGITAL_PINS 7
+
+// Pin mapping arrays
+const int analog_pins[MAX_ANALOG_PINS] = {
+  ANALOG_PIN_0
+};
+
+const int digital_pins[MAX_DIGITAL_PINS] = {
+  DIGITAL_PIN_0, DIGITAL_PIN_1, DIGITAL_PIN_2, DIGITAL_PIN_3,
+  DIGITAL_PIN_4, DIGITAL_PIN_5, DIGITAL_PIN_6
+};
+
+#endif
 
 // Command definitions
 #define READ_ANALOG_CMD     0x03
@@ -59,17 +114,6 @@ bool sendAllDigitalData();
 bool sendErrorResponse(uint8_t pin, uint8_t error_code);
 int getAnalogGPIOForPin(int pin_number);
 int getDigitalGPIOForPin(int pin_number);
-
-// Pin mapping arrays
-const int analog_pins[MAX_ANALOG_PINS] = {
-  ANALOG_PIN_0, ANALOG_PIN_1, ANALOG_PIN_2, ANALOG_PIN_3,
-  ANALOG_PIN_4, ANALOG_PIN_5, ANALOG_PIN_6, ANALOG_PIN_7
-};
-
-const int digital_pins[MAX_DIGITAL_PINS] = {
-  DIGITAL_PIN_0, DIGITAL_PIN_1, DIGITAL_PIN_2, DIGITAL_PIN_3,
-  DIGITAL_PIN_4, DIGITAL_PIN_5, DIGITAL_PIN_6, DIGITAL_PIN_7
-};
 
 // CAN configuration
 twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
@@ -111,12 +155,28 @@ void setup() {
   }
   
   Serial.println();
+
+#ifdef FLOW_SENSOR_PIN
+  // Attach interrupt for flow sensor pulse measurement
+  pinMode(FLOW_SENSOR_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), pulseISR, CHANGE);
+  Serial.println("Flow sensor interrupt attached");
+#endif
 }
 
 void loop() {
   // Continuously listen for CAN messages
   receiveCANMessages();
   delay(10); // Small delay to prevent overwhelming the CPU
+
+#ifdef FLOW_SENSOR_PIN
+  if(millis() - pulseCheckTime >= 1000) {
+    pulseCheckTime = millis();
+    pulsesPerSecond = pulseCount;
+    pulseCount = 0;
+    Serial.printf("Pulses in last second: %d\n", pulsesPerSecond);
+  }
+#endif
 }
 
 bool initializeCAN() {
@@ -182,6 +242,13 @@ uint16_t readAnalogPin(int pin_number) {
     return 0;
   }
   
+  #ifdef FLOW_SENSOR_PIN
+  if (gpio_pin == FLOW_SENSOR_PIN) {
+    // Special handling for flow sensor can go here
+    // For now, just read normally
+  }
+  #endif
+
   uint16_t reading = analogRead(gpio_pin);
   return reading;
 }
