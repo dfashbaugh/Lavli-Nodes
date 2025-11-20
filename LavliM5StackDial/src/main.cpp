@@ -314,6 +314,15 @@ void doDry()
 void doWash()
 {
   Serial.println("Starting Wash Cycle - User Implementation");
+
+  // toggleDrainPump(true);
+  // nonBlockingDelay(60000);
+  // if(stopRequested) 
+  //   return;
+
+  // toggleDrainPump(false);
+
+  // return;
   // TODO: User to implement wash cycle CAN commands
   // Example:
   // setMotorRPM(50);
@@ -327,59 +336,126 @@ void doWash()
 
   */
 
+  // toggleOzoneGenerator(true);
+  // nonBlockingDelay(60000);
+  // if(stopRequested) 
+  //   return;
 
-  toggleCleanWaterPump(true);
-  toggleCleanInletSolenoid(true);
+  // toggleOzoneGenerator(false);
 
-  nonBlockingDelay(3000); 
-  if(stopRequested) 
-    return;
 
-  togglePeristalticPump(true);
+  // togglePeristalticPump(true);
 
-  nonBlockingDelay(2000);
-  if(stopRequested) 
-    return;
+  // nonBlockingDelay(2000);
+  // if(stopRequested) 
+  //   return;
 
-  togglePeristalticPump(false);
+  // toggleCleanWaterPump(true);
+  // toggleCleanInletSolenoid(true);
 
-  nonBlockingDelay(2000);
-  if(stopRequested) 
-    return;
+  // nonBlockingDelay(60000); 
+  // if(stopRequested) 
+  //   return;
 
-  setMotorRPM(25);
+  // toggleCleanWaterPump(false);
+  // toggleCleanInletSolenoid(false);
 
-  nonBlockingDelay(5000);
-  if(stopRequested) 
-    return;
+  // setMotorRPM(25);
 
-  toggleCleanWaterPump(false);
-  toggleCleanInletSolenoid(false);
+  // nonBlockingDelay(180000);
+  // if(stopRequested) 
+  //   return;
 
-  nonBlockingDelay(2000);
+  // setMotorRPM(0);
+
+  // toggleDrainPump(true);
+
+  // nonBlockingDelay(60000);
+  // if(stopRequested) 
+  //   return;
+
+  // toggleDrainPump(false);
+
+  // nonBlockingDelay(2000);
+  // if(stopRequested) 
+  //   return;
+
+  setMotorRPM(50);
+
+  nonBlockingDelay(60000);
   if(stopRequested) 
     return;
 
   setMotorRPM(100);
 
-  nonBlockingDelay(5000);
-  if(stopRequested) 
-    return;
-
-  setMotorRPM(25);
-
-  nonBlockingDelay(2000);
-  if(stopRequested) 
-    return;
-
-  setMotorRPM(0);
   toggleDrainPump(true);
 
-  nonBlockingDelay(5000);
+  nonBlockingDelay(30000);
   if(stopRequested) 
     return;
 
   toggleDrainPump(false);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(300);
+
+  toggleDrainPump(true);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  toggleDrainPump(false);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(500);
+
+  toggleDrainPump(true);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  toggleDrainPump(false);
+
+  nonBlockingDelay(60000);
+  if(stopRequested) 
+    return;
+
+  toggleDrainPump(true);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  toggleDrainPump(false);
+
+  nonBlockingDelay(60000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(1000);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  toggleDrainPump(true);
+
+  nonBlockingDelay(30000);
+  if(stopRequested) 
+    return;
+
+  toggleDrainPump(false);
+
+  setMotorRPM(0);
+  
 
   Serial.println("Wash Cycle Complete");
 
@@ -483,6 +559,10 @@ void loop() {
   }
   */
   // END TEST MODE
+
+  // requestAllAnalogReadings(SENSOR_NODE_1_ADDRESS);
+
+  // delay(500);
 
   alwaysRunMainLoopTasks();
 
