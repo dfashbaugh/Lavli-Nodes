@@ -380,15 +380,79 @@ void doWash()
   // if(stopRequested) 
   //   return;
 
-  setMotorRPM(50);
 
-  nonBlockingDelay(60000);
+  toggleCleanInletSolenoid(true);
+  nonBlockingDelay(600);
+  if(stopRequested) 
+    return; 
+  
+  toggleCleanWaterPump(true);
+  nonBlockingDelay(60000);   //clean pump need to be on when water sensor is below mid sensor CLEAN SENSOR
+  if(stopRequested) 
+  return;
+  
+  toggleCleanWaterPump(false);
+
+  togglePeristalticPump(true);
+  nonBlockingDelay(2500);
   if(stopRequested) 
     return;
 
-  setMotorRPM(100);
+  togglePeristalticPump(false);
 
+  setMotorRPM(-25);  //need a way to set direction
+  nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(25);  //need a way to set direction
+  nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(-25);  //need a way to set direction
+  nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(25);  //need a way to set direction
+  nonBlockingDelay(5000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(-25);  //need a way to set direction
+  nonBlockingDelay(420000);
+  if(stopRequested) 
+    return;
+  
+  setMotorRPM(0);
+
+  setMotorRPM(25);  //need a way to set direction
+  nonBlockingDelay(420000);
+  if(stopRequested) 
+    return;
+
+  setMotorRPM(0);
+
+  toggleDrainPump(true); //Stop drain pump after flow sensor after the wire wedge reads there is no flow entering into the pump
+  nonBlockingDelay(240000);
+  if(stopRequested) 
+    return;
+  toggleDrainPump(false);
+  toggleCleanInletSolenoid(true);
+
+  toggleCleanWaterPump(true);
+  nonBlockingDelay(240000);
+  if(stopRequested) //Turn off clean pump when water is below LOW Clean Tank water level sensor (This is for rinse)
+    return;
+
+  setMotorRPM(25);
+  nonBlockingDelay(300000);
+  if(stopRequested) //Turn off clean pump when water is below LOW Clean Tank water level sensor (This is for rinse)
+    return;
   toggleDrainPump(true);
+
+//AZRA- got up to step 12
 
   nonBlockingDelay(30000);
   if(stopRequested) 
@@ -560,7 +624,8 @@ void loop() {
   */
   // END TEST MODE
 
-  // requestAllAnalogReadings(SENSOR_NODE_1_ADDRESS);
+  requestAllAnalogReadings(SENSOR_NODE_1_ADDRESS);
+  requestAllAnalogReadings(SENSOR_NODE_2_ADDRESS);
 
   // delay(500);
 
